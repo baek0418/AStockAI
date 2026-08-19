@@ -192,6 +192,7 @@ def evaluate_rolling_windows(
     baseline_probability_display_key="预测上涨概率",
     outcome_description="上涨",
     actual_positive_rate_key="实际上涨率",
+    out_of_sample_columns=None,
 ):
     """执行扩张窗口、5 日 gap 的样本外验证并汇总概率校准结果。"""
     dependencies = dependencies or get_sklearn_dependencies()
@@ -247,9 +248,13 @@ def evaluate_rolling_windows(
                 baseline_label: {baseline_probability_display_key: round(baseline_probability, 6), **baseline_metrics},
             }
         )
-        all_out_of_sample.append(
-            test[["日期", "股票名称", label_column]].assign(**{probability_column: probabilities})
-        )
+        exported_columns = ["日期", "股票名称", label_column]
+        for column in out_of_sample_columns or []:
+            if column not in test.columns:
+                raise ValueError(f"样本外导出字段不存在：{column}。")
+            if column not in exported_columns:
+                exported_columns.append(column)
+        all_out_of_sample.append(test[exported_columns].assign(**{probability_column: probabilities}))
         all_baseline_probabilities.append(
             test[[label_column]].assign(**{baseline_probability_column: baseline_probability})
         )
