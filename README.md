@@ -73,3 +73,15 @@ v5.1 与 v5.0 完全隔离：它仅读取 `data/*.csv` 的正式股票日线，�
 ## 许可证
 
 本项目以 [MIT License](LICENSE) 发布。
+
+## 组合级研究回测
+
+`portfolio_backtest.py` 将**已经在交易日可得的样本外信号**转换为组合回测结果；它不会训练模型或读取未来信号。输入 CSV 必须包含 `日期`、`股票`、`收盘`、`信号`，可选 `可买入`、`可卖出` 用于显式模拟停牌或涨跌停限制。
+
+```bash
+.venv/bin/python portfolio_backtest.py signals.csv \
+  --benchmark data/market/沪深300_sh000300.csv \
+  --max-positions 5 --rebalance-interval 5
+```
+
+默认配置包含等权仓位上限、5 日调仓、交易佣金、最低佣金、卖出印花税、滑点和 100 股整手约束。报告会写入 `output/portfolio/`，并包含净值曲线、交易明细和参数；这些研究产物不会被提交。组合回测结果仍只用于研究，不构成投资建议。
