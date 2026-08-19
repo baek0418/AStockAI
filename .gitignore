@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+
+# Local environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local application state, reports, and research artifacts
+logs/
+output/
+data/
+models/
+dist/
+watchlist.json
+watchlist.json.bak
+equity_curve.csv
+AStockAI日报_*.md
+AStockAI晨报_*.md
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Vendored third-party working copies
+external/
