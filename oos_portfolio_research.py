@@ -183,11 +183,17 @@ def main():
     parser.add_argument("--max-positions", type=int, default=5)
     parser.add_argument("--rebalance-interval", type=int, default=5)
     parser.add_argument("--min-signal", type=float)
+    parser.add_argument("--target-volatility", type=float, default=0.18)
+    parser.add_argument("--market-ma-window", type=int, default=20)
+    parser.add_argument("--risk-off-exposure", type=float, default=0.0)
     arguments = parser.parse_args()
     config = PortfolioConfig(
         max_positions=arguments.max_positions,
         rebalance_interval=arguments.rebalance_interval,
         min_signal=arguments.min_signal,
+        target_annual_volatility=arguments.target_volatility,
+        market_ma_window=arguments.market_ma_window,
+        risk_off_exposure=arguments.risk_off_exposure,
     )
     result = run_oos_portfolio_research(benchmark_name=arguments.benchmark, config=config)
     print(result["message"])
