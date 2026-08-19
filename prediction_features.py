@@ -90,7 +90,7 @@ def build_stock_feature_frame(history, stock_name, stock_code=""):
     data.loc[data[RETURN_COLUMN].isna(), LABEL_COLUMN] = float("nan")
     data.insert(0, "股票代码", str(stock_code).strip())
     data.insert(1, "股票名称", stock_name)
-    return data[["股票代码", "股票名称", "日期", *FEATURE_COLUMNS, RETURN_COLUMN, LABEL_COLUMN]]
+    return data[["股票代码", "股票名称", "日期", "收盘", *FEATURE_COLUMNS, RETURN_COLUMN, LABEL_COLUMN]]
 
 
 def create_stock_code_lookup(project_directory):
