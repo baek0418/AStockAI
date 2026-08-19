@@ -1,0 +1,158 @@
+"""v4.6 证据层只读边界、市场事实与报告降级测试。"""
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import pandas as pd
+
+from analysis_evidence import (
+    build_report_evidence,
+    load_market_context,
+)
+from daily_report import create_evidence_report_content, create_rule_cross_signal_summary
+from stock_analysis import create_evidence_markdown_content
+
+
+def write_json(path, data):
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def write_market_csv(path, closes):
+    dates = pd.bdate_range("2026-06-01", periods=len(closes))
+    pd.DataFrame(
+        {
+            "日期": dates.strftime("%Y-%m-%d"),
+            "开盘": closes,
+            "收盘": closes,
+            "最高": [value + 1 for value in closes],
+            "最低": [value - 1 for value in closes],
+            "成交量": [100] * len(closes),
+        }
+    ).to_csv(path, index=False, encoding="utf-8-sig")
+
+
+class AnalysisEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.output = self.root / "output"
+        self.market = self.root / "data" / "market"
+        self.output.mkdir(parents=True)
+        self.market.mkdir(parents=True)
+        self.watchlist = self.root / "watchlist.json"
+        write_json(self.watchlist, {"stocks": [{"code": "000001", "name": "测试股", "priority": 5, "enable": True}]})
+        write_json(
+            self.output / "quant_snapshot_2026-07-24.json",
+            {"快照日期": "2026-07-24", "股票排行榜": [{
+                "股票代码": "000001", "股票名称": "测试股", "综合评分": 70,
+                "收盘价": 12.34, "RSI": 55, "MA5": 11, "MA20": 10, "MACD": 0.2, "建议": "重点观察",
+            }]},
+        )
+        write_json(
+            self.output / "daily_signal_2026-07-24.json",
+            {"快照日期": "2026-07-24", "前一交易日数据可用": True, "stocks": [{
+                "股票代码": "000001", "股票名称": "测试股", "数据状态": "前一交易日快照可用。",
+                "当前指标": {"Score": 70, "RSI": 55, "MA5": 11, "MA20": 10, "MACD": 0.2, "趋势": "均线多头", "建议": "重点观察", "风险标签": "正常"},
+                "今日变化": {"Score变化": 12, "RSI变化": 2, "MA5/MA20关系变化": "维持MA5 高于 MA20", "MACD状态变化": "MACD 正值扩大"},
+                "信号分类": "偏强", "观察重点": ["观察 MA5 是否继续高于 MA20。"],
+            }]},
+        )
+        write_json(self.output / "watchlist_snapshot_2026-07-24.json", {"stocks": []})
+        write_market_csv(self.market / "沪深300_sh000300.csv", list(range(100, 125)))
+        write_market_csv(self.market / "中证1000_sh000852.csv", list(range(200, 225)))
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def test_market_context_uses_existing_index_csv_facts(self):
+        market = load_market_context(self.market)
+        csi300 = market["指数"]["沪深300"]
+        self.assertEqual(csi300["数据状态"], "可用")
+        self.assertEqual(csi300["数据截至日期"], "2026-07-03")
+        self.assertAlmostEqual(csi300["1日涨跌"], round((124 / 123 - 1) * 100, 2))
+        self.assertTrue(csi300["位于20日均线之上"])
+
+    def test_missing_market_file_is_explicit_and_does_not_block_evidence(self):
+        (self.market / "中证1000_sh000852.csv").unlink()
+        evidence = build_report_evidence(self.output, self.market, self.watchlist)
+        self.assertIn("数据不足", evidence["市场环境"]["指数"]["中证1000"]["数据状态"])
+        self.assertEqual(evidence["关注股票"][0]["当前量化证据"]["Score"], 70)
+
+    def test_stock_evidence_values_are_traceable_and_reports_exclude_probabilities(self):
+        evidence = build_report_evidence(self.output, self.market, self.watchlist)
+        stock = evidence["关注股票"][0]
+        self.assertEqual(stock["当前量化证据"]["RSI"], 55)
+        self.assertEqual(stock["当前量化证据"]["收盘价"], 12.34)
+        self.assertEqual(stock["今日变化"]["Score变化"], 12)
+        self.assertIn("MA5 高于 MA20", " ".join(stock["偏强证据"]))
+        daily_markdown = create_evidence_report_content(evidence, "AI增强分析暂不可用。")
+        stock_markdown = create_evidence_markdown_content(stock, evidence["市场环境"], "AI增强分析暂不可用。")
+        self.assertIn("## 市场环境", daily_markdown)
+        self.assertIn("## 今日摘要", daily_markdown)
+        self.assertIn("## 研究控制面板", daily_markdown)
+        self.assertIn("预测模型准入", daily_markdown)
+        self.assertIn("## 今日重点与风险", daily_markdown)
+        self.assertIn("## 20 日研究跟踪优先级", daily_markdown)
+        self.assertIn("## 今日重点", daily_markdown)
+        self.assertIn("## 全量关注速览", daily_markdown)
+        self.assertIn("12.34", daily_markdown)
+        self.assertIn("## 今日重点变化", daily_markdown)
+        self.assertIn("## 重点关注股票深度解读", daily_markdown)
+        self.assertIn("收盘价", daily_markdown)
+        self.assertIn("系统评分 +12", daily_markdown)
+        self.assertIn("趋势 / 动能", daily_markdown)
+        self.assertIn("风险提示", daily_markdown)
+        self.assertNotIn("出现变化，等待验证", daily_markdown)
+        reader_content = daily_markdown.split("## 名词小抄", maxsplit=1)[0]
+        self.assertIn("短期走势", reader_content)
+        self.assertNotIn("MACD", reader_content)
+        self.assertNotIn("RSI", reader_content)
+        self.assertIn("## 数据状态", stock_markdown)
+        self.assertIn("## 偏强证据", stock_markdown)
+        self.assertNotIn("未来 5 日上涨概率", daily_markdown + stock_markdown)
+        self.assertNotIn("跑赢市场基准的实验概率", daily_markdown + stock_markdown)
+        self.assertIn(
+            "主要指数是否仍高于近 20 个交易日平均价格",
+            create_rule_cross_signal_summary(evidence),
+        )
+
+    def test_missing_previous_day_changes_remain_insufficient(self):
+        signal_file = self.output / "daily_signal_2026-07-24.json"
+        data = json.loads(signal_file.read_text(encoding="utf-8"))
+        data["stocks"][0]["数据状态"] = "缺少前一交易日快照，现有数据不足，无法判断。"
+        data["stocks"][0]["今日变化"] = {
+            "Score变化": "数据不足", "RSI变化": "数据不足",
+            "MA5/MA20关系变化": "数据不足", "MACD状态变化": "数据不足",
+        }
+        write_json(signal_file, data)
+        evidence = build_report_evidence(self.output, self.market, self.watchlist)
+        self.assertEqual(evidence["关注股票"][0]["今日变化"]["Score变化"], "数据不足")
+
+    def test_research_priority_records_top3_change_only_when_previous_snapshot_exists(self):
+        previous = {
+            "快照日期": "2026-07-23",
+            "股票排行榜": [],
+            "稳健研究候选": {"20日研究推荐": [
+                {"股票代码": "000002", "股票名称": "昨日第一", "20日研究优先评分": 80},
+                {"股票代码": "000001", "股票名称": "测试股", "20日研究优先评分": 60},
+            ]},
+        }
+        current_file = self.output / "quant_snapshot_2026-07-24.json"
+        current = json.loads(current_file.read_text(encoding="utf-8"))
+        current["稳健研究候选"] = {"20日研究推荐": [
+            {"股票代码": "000001", "股票名称": "测试股", "20日研究优先评分": 70, "推荐状态": "研究跟踪"},
+            {"股票代码": "000003", "股票名称": "新进入", "20日研究优先评分": 65, "推荐状态": "研究跟踪"},
+        ]}
+        write_json(self.output / "quant_snapshot_2026-07-23.json", previous)
+        write_json(current_file, current)
+
+        evidence = build_report_evidence(self.output, self.market, self.watchlist)
+        recommendations = evidence["优先研究标的"]
+        self.assertIn("TOP3 内上升 1 位", recommendations[0]["TOP3动态"])
+        self.assertEqual(recommendations[1]["TOP3动态"], "新进入 TOP3")
+
+
+if __name__ == "__main__":
+    unittest.main()

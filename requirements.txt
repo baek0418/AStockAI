@@ -1,0 +1,9 @@
+pandas
+easy-tdx==1.20.6
+requests
+ta
+matplotlib
+python-dotenv
+streamlit
+scikit-learn
+joblib

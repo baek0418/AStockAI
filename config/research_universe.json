@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "enabled": false,
+  "universe": "csi300",
+  "snapshot_file": "",
+  "refresh_policy": "启用前需使用 research_universe.py 下载，或用 import_csi300_snapshot.py 导入并校验完整 CSV 快照。"
+}
