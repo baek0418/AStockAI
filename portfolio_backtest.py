@@ -16,6 +16,7 @@ import pandas as pd
 
 REQUIRED_SIGNAL_COLUMNS = {"日期", "股票", "收盘", "信号"}
 OPTIONAL_TRADE_COLUMNS = {"可买入", "可卖出"}
+REBALANCE_COLUMN = "调仓"
 TRADING_DAYS_PER_YEAR = 252
 
 
@@ -83,8 +84,8 @@ def prepare_signal_panel(signal_data):
     panel["股票"] = panel["股票"].astype(str).str.strip()
     panel["收盘"] = pd.to_numeric(panel["收盘"], errors="coerce")
     panel["信号"] = pd.to_numeric(panel["信号"], errors="coerce")
-    if panel[["日期", "股票", "收盘", "信号"]].isna().any().any():
-        raise ValueError("信号数据含有无效日期、股票、收盘价或信号。")
+    if panel[["日期", "股票", "收盘"]].isna().any().any():
+        raise ValueError("信号数据含有无效日期、股票或收盘价。")
     if (panel["收盘"] <= 0).any() or (panel["股票"] == "").any():
         raise ValueError("收盘价必须为正数，股票代码/名称不能为空。")
     if panel.duplicated(["日期", "股票"]).any():
@@ -94,6 +95,17 @@ def prepare_signal_panel(signal_data):
         if column not in panel:
             panel[column] = True
         panel[column] = panel[column].map(lambda value: _as_bool(value, column))
+    if REBALANCE_COLUMN in panel:
+        panel[REBALANCE_COLUMN] = panel[REBALANCE_COLUMN].map(
+            lambda value: _as_bool(value, REBALANCE_COLUMN)
+        )
+        if panel.groupby("日期")[REBALANCE_COLUMN].nunique().gt(1).any():
+            raise ValueError("同一交易日的调仓标记必须对全部股票一致。")
+        rebalance_signals = panel.loc[panel[REBALANCE_COLUMN]].groupby("日期")["信号"]
+        if rebalance_signals.apply(lambda values: values.notna().any()).eq(False).any():
+            raise ValueError("调仓日缺少有效信号。")
+    elif panel["信号"].isna().any():
+        raise ValueError("未提供调仓标记时，信号不能为空。")
     return panel.sort_values(["日期", "股票"]).reset_index(drop=True)
 
 
@@ -160,7 +172,7 @@ def _portfolio_value(cash, positions, today_rows):
 
 
 def _select_targets(today_rows, config):
-    candidates = today_rows[today_rows["可买入"]].copy()
+    candidates = today_rows[today_rows["可买入"] & today_rows["信号"].notna()].copy()
     if config.min_signal is not None:
         candidates = candidates[candidates["信号"] >= config.min_signal]
     # ``股票`` 同时是索引和保留列，单独建排序列以兼容 pandas 的歧义检查。
@@ -287,7 +299,12 @@ def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
         missing_positions = sorted(set(positions) - set(today.index))
         if missing_positions:
             raise ValueError(f"{date.date()} 缺少持仓行情：{missing_positions}。")
-        if day_index % config.rebalance_interval == 0:
+        explicit_rebalance = (
+            bool(today[REBALANCE_COLUMN].iloc[0])
+            if REBALANCE_COLUMN in today.columns
+            else day_index % config.rebalance_interval == 0
+        )
+        if explicit_rebalance:
             cash = _rebalance(date, today, positions, cash, config, trades)
         portfolio_value = _portfolio_value(cash, positions, today)
         row = {
