@@ -69,7 +69,13 @@ def build_feature_dataset_v2(
         data_directory=data_directory, project_directory=project_directory
     )
     benchmark = load_benchmark_feature_frame(market_directory, benchmark_name)
-    dataset = stock_features.merge(benchmark, on="日期", how="inner", validate="many_to_one")
+    dataset = stock_features.merge(
+        benchmark,
+        on="日期",
+        how="inner",
+        validate="many_to_one",
+        suffixes=("", "_市场"),
+    )
     if dataset.empty:
         raise ValueError("正式股票历史与市场基准没有可对齐的交易日，拒绝训练。")
     dataset["relative_strength_5d"] = dataset["return_5d"] - dataset["market_return_5d"]
@@ -93,6 +99,7 @@ def build_feature_dataset_v2(
         "股票代码",
         "股票名称",
         "日期",
+        "收盘",
         "市场基准",
         *FEATURE_COLUMNS_V2,
         RETURN_COLUMN,
