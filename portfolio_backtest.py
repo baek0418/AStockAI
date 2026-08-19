@@ -34,6 +34,10 @@ class PortfolioConfig:
     sell_stamp_duty_rate: float = 0.0005
     slippage_rate: float = 0.001
     lot_size: int = 100
+    target_annual_volatility: float | None = None
+    volatility_lookback_days: int = 20
+    market_ma_window: int | None = None
+    risk_off_exposure: float = 0.0
 
     def __post_init__(self):
         if self.initial_capital <= 0:
@@ -46,6 +50,14 @@ class PortfolioConfig:
             raise ValueError("rebalance_interval 必须至少为 1 个交易日。")
         if self.lot_size < 1:
             raise ValueError("lot_size 必须至少为 1。")
+        if self.target_annual_volatility is not None and self.target_annual_volatility <= 0:
+            raise ValueError("target_annual_volatility 必须大于 0 或为 None。")
+        if self.volatility_lookback_days < 2:
+            raise ValueError("volatility_lookback_days 必须至少为 2。")
+        if self.market_ma_window is not None and self.market_ma_window < 2:
+            raise ValueError("market_ma_window 必须至少为 2 或为 None。")
+        if not 0 <= self.risk_off_exposure <= 1:
+            raise ValueError("risk_off_exposure 必须在 0 与 1 之间。")
         for value, name in (
             (self.commission_rate, "commission_rate"),
             (self.minimum_commission, "minimum_commission"),
@@ -181,6 +193,29 @@ def _select_targets(today_rows, config):
     return candidates.head(config.max_positions).index.tolist()
 
 
+def calculate_market_exposure(benchmark_history, config):
+    """只用调仓日前的基准收盘价计算目标暴露，绝不读取当日价格。"""
+    if benchmark_history is None:
+        return 1.0, "未启用市场风控"
+    history = pd.Series(benchmark_history, dtype="float64").dropna()
+    exposure = 1.0
+    reasons = []
+    if config.target_annual_volatility is not None:
+        returns = history.pct_change().dropna().tail(config.volatility_lookback_days)
+        if len(returns) >= 2 and returns.std(ddof=0) > 0:
+            estimated_volatility = float(returns.std(ddof=0) * math.sqrt(TRADING_DAYS_PER_YEAR))
+            exposure = min(exposure, config.target_annual_volatility / estimated_volatility)
+            reasons.append("波动率目标")
+    if config.market_ma_window is not None and len(history) >= config.market_ma_window:
+        latest_close = float(history.iloc[-1])
+        moving_average = float(history.tail(config.market_ma_window).mean())
+        if latest_close < moving_average:
+            exposure = min(exposure, config.risk_off_exposure)
+            reasons.append("市场均线风险关闭")
+    exposure = min(max(float(exposure), 0.0), 1.0)
+    return exposure, "、".join(reasons) if reasons else "正常暴露"
+
+
 def _record_trade(trades, date, symbol, side, shares, price, fee, reason):
     if shares <= 0:
         return
@@ -197,12 +232,12 @@ def _record_trade(trades, date, symbol, side, shares, price, fee, reason):
     )
 
 
-def _rebalance(date, today_rows, positions, cash, config, trades):
+def _rebalance(date, today_rows, positions, cash, config, trades, target_exposure=1.0, reason="调仓"):
     """先卖后买，并严格遵守当天的买卖限制和仓位上限。"""
     selected = _select_targets(today_rows, config)
     portfolio_value = _portfolio_value(cash, positions, today_rows)
     target_weight = min(config.max_weight, 1 / config.max_positions)
-    target_value = portfolio_value * target_weight
+    target_value = portfolio_value * target_weight * target_exposure
 
     target_shares = {}
     for symbol in selected:
@@ -223,7 +258,7 @@ def _rebalance(date, today_rows, positions, cash, config, trades):
             positions[symbol] -= sell_shares
             if positions[symbol] == 0:
                 del positions[symbol]
-            _record_trade(trades, date, symbol, "卖出", sell_shares, execution_price, fee, "调仓")
+            _record_trade(trades, date, symbol, "卖出", sell_shares, execution_price, fee, reason)
 
     for symbol in selected:
         row = today_rows.loc[symbol]
@@ -239,7 +274,7 @@ def _rebalance(date, today_rows, positions, cash, config, trades):
             cost, execution_price, fee = _buy_cost(buy_shares, float(row["收盘"]), config)
             cash -= cost
             positions[symbol] = held + buy_shares
-            _record_trade(trades, date, symbol, "买入", buy_shares, execution_price, fee, "调仓")
+            _record_trade(trades, date, symbol, "买入", buy_shares, execution_price, fee, reason)
     return cash
 
 
@@ -271,6 +306,9 @@ def calculate_performance_statistics(nav_data, trades, config):
         "交易笔数": int(len(trades)),
         "总费用": round(float(pd.DataFrame(trades)["费用"].sum()), 2) if trades else 0.0,
     }
+    if "目标暴露" in nav_data:
+        statistics["平均目标暴露"] = round(float(nav_data["目标暴露"].mean()), 6)
+        statistics["低于满仓暴露交易日数"] = int((nav_data["目标暴露"] < 0.999999).sum())
     if "基准净值" in nav_data:
         benchmark_return = float(nav_data["基准净值"].iloc[-1] / nav_data["基准净值"].iloc[0] - 1)
         statistics["基准累计收益率"] = round(benchmark_return, 6)
@@ -289,11 +327,15 @@ def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
     panel = prepare_signal_panel(signal_data)
     trading_dates = pd.Index(panel["日期"].drop_duplicates().sort_values())
     benchmark = prepare_benchmark(benchmark_data, trading_dates)
+    if (config.target_annual_volatility is not None or config.market_ma_window is not None) and benchmark is None:
+        raise ValueError("启用市场风控或波动率目标时必须提供基准数据。")
 
     cash = float(config.initial_capital)
     positions = {}
     trades = []
     nav_rows = []
+    target_exposure = 1.0
+    market_state = "正常暴露"
     for day_index, date in enumerate(trading_dates):
         today = panel[panel["日期"] == date].copy().set_index("股票", drop=False)
         missing_positions = sorted(set(positions) - set(today.index))
@@ -305,7 +347,19 @@ def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
             else day_index % config.rebalance_interval == 0
         )
         if explicit_rebalance:
-            cash = _rebalance(date, today, positions, cash, config, trades)
+            benchmark_history = benchmark.iloc[:day_index] if benchmark is not None else None
+            target_exposure, market_state = calculate_market_exposure(benchmark_history, config)
+            trade_reason = "市场风控调仓" if target_exposure < 0.999999 else "调仓"
+            cash = _rebalance(
+                date,
+                today,
+                positions,
+                cash,
+                config,
+                trades,
+                target_exposure=target_exposure,
+                reason=trade_reason,
+            )
         portfolio_value = _portfolio_value(cash, positions, today)
         row = {
             "日期": pd.Timestamp(date).strftime("%Y-%m-%d"),
@@ -313,6 +367,8 @@ def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
             "持仓数量": len(positions),
             "组合市值": round(portfolio_value, 6),
             "策略净值": portfolio_value / config.initial_capital,
+            "目标暴露": target_exposure,
+            "市场状态": market_state,
         }
         if benchmark is not None:
             row["基准净值"] = float(benchmark.loc[date] / benchmark.iloc[0])
@@ -349,11 +405,17 @@ def main():
     parser.add_argument("--max-positions", type=int, default=5)
     parser.add_argument("--rebalance-interval", type=int, default=5)
     parser.add_argument("--min-signal", type=float)
+    parser.add_argument("--target-volatility", type=float)
+    parser.add_argument("--market-ma-window", type=int)
+    parser.add_argument("--risk-off-exposure", type=float, default=0.0)
     arguments = parser.parse_args()
     config = PortfolioConfig(
         max_positions=arguments.max_positions,
         rebalance_interval=arguments.rebalance_interval,
         min_signal=arguments.min_signal,
+        target_annual_volatility=arguments.target_volatility,
+        market_ma_window=arguments.market_ma_window,
+        risk_off_exposure=arguments.risk_off_exposure,
     )
     signal_data = pd.read_csv(arguments.signals)
     benchmark_data = pd.read_csv(arguments.benchmark) if arguments.benchmark else None
