@@ -97,6 +97,22 @@ class PortfolioBacktestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "只能有一条信号"):
             run_portfolio_backtest(panel)
 
+    def test_explicit_rebalance_keeps_positions_during_signal_gaps(self):
+        panel = make_panel(
+            [
+                {"日期": "2025-01-01", "股票": "A", "收盘": 10, "信号": 1.0, "调仓": True},
+                {"日期": "2025-01-02", "股票": "A", "收盘": 11, "信号": None, "调仓": False},
+                {"日期": "2025-01-03", "股票": "A", "收盘": 12, "信号": None, "调仓": False},
+            ]
+        )
+        config = PortfolioConfig(
+            initial_capital=1000, max_positions=1, max_weight=1, commission_rate=0,
+            minimum_commission=0, sell_stamp_duty_rate=0, slippage_rate=0, lot_size=1,
+        )
+        nav, trades, _ = run_portfolio_backtest(panel, config)
+        self.assertEqual(len(trades), 1)
+        self.assertAlmostEqual(nav.iloc[-1]["策略净值"], 1.2)
+
 
 if __name__ == "__main__":
     unittest.main()
