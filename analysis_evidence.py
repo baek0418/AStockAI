@@ -200,6 +200,74 @@ def load_market_context(market_directory=PROJECT_DIRECTORY / "data" / "market"):
     }
 
 
+def _load_provenance_record(provenance_directory, stock):
+    """读取单只股票的行情来源审计；缺失记录只降低可追溯性，不阻断日报。"""
+    code = str(stock.get("code", "")).strip()
+    name = str(stock.get("name", code or "未知股票")).strip()
+    if not code:
+        return {"股票代码": "", "股票名称": name, "状态": "未记录：股票代码无效。"}
+    file_path = Path(provenance_directory) / f"{code}.json"
+    if not file_path.is_file():
+        return {"股票代码": code, "股票名称": name, "状态": "未记录：该日线由旧版流程生成或尚未更新。"}
+    try:
+        record = json.loads(file_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {"股票代码": code, "股票名称": name, "状态": f"不可用：来源审计读取失败：{error}。"}
+    if not isinstance(record, dict):
+        return {"股票代码": code, "股票名称": name, "状态": "不可用：来源审计格式无效。"}
+    date_range = record.get("日期范围", [])
+    last_date = date_range[-1] if isinstance(date_range, list) and date_range else INSUFFICIENT
+    return {
+        "股票代码": code,
+        "股票名称": name,
+        "状态": "可核对",
+        "数据源": str(record.get("数据源") or INSUFFICIENT),
+        "复权方式": str(record.get("复权方式") or INSUFFICIENT),
+        "数据截至日期": str(last_date),
+        "更新时间": str(record.get("更新时间") or INSUFFICIENT),
+        "是否使用备用源": record.get("是否使用备用源") is True,
+        "请求尝试次数": record.get("请求尝试次数", 1),
+    }
+
+
+def load_quote_provenance_context(data_directory, watchlist_stocks, report_date):
+    """汇总本地行情审计，不以更新后的文件反向改写日报快照中的事实。"""
+    records = [
+        _load_provenance_record(Path(data_directory) / "provenance", stock)
+        for stock in watchlist_stocks or []
+    ]
+    verifiable = [item for item in records if item.get("状态") == "可核对"]
+    report_day = str(report_date or INSUFFICIENT)[:10]
+    same_day = [item for item in verifiable if item.get("数据截至日期") == report_day]
+    newer = [item for item in verifiable if item.get("数据截至日期") > report_day]
+    older = [item for item in verifiable if item.get("数据截至日期") < report_day]
+    missing = [item for item in records if item.get("状态") != "可核对"]
+    if not records:
+        status = "数据不足：没有启用关注股，无法核对行情来源。"
+    elif missing or older:
+        status = "审计不完整：不因缺失或落后的来源记录扩大日报结论。"
+    elif newer:
+        status = "当前行情记录较日报快照更新；日报仍只使用快照日期的已保存事实。"
+    else:
+        status = "可核对：关注股行情来源记录与日报快照日期一致。"
+    return {
+        "状态": status,
+        "日报快照日期": report_day,
+        "关注股数": len(records),
+        "可核对数": len(verifiable),
+        "同日记录数": len(same_day),
+        "较新记录数": len(newer),
+        "落后记录数": len(older),
+        "未记录数": len(missing),
+        "备用源更新数": sum(item.get("是否使用备用源") is True for item in verifiable),
+        "重试后成功数": sum(
+            isinstance(item.get("请求尝试次数"), int) and item["请求尝试次数"] > 1
+            for item in verifiable
+        ),
+        "股票": records,
+    }
+
+
 def _find_stock(stocks, code, name, code_keys=("股票代码", "code"), name_keys=("股票名称", "name")):
     for item in stocks or []:
         if not isinstance(item, dict):
@@ -478,6 +546,11 @@ def build_report_evidence(
         }
     watch_config_context = load_watchlist_config(watchlist_file)
     market_context = load_market_context(market_directory)
+    quote_provenance = load_quote_provenance_context(
+        Path(market_directory).parent,
+        watch_config_context.get("stocks", []),
+        quant_date,
+    )
     raw_stocks = [
         build_stock_evidence(stock, quant_context, daily_context, watch_snapshot_context, watch_config_context, market_context, announcement_context)
         for stock in watch_config_context.get("stocks", [])
@@ -492,6 +565,7 @@ def build_report_evidence(
         "公告证据": announcement_context,
         "预测模型验证": prediction_admission,
         "市场环境": market_context,
+        "行情来源审计": quote_provenance,
         "关注股票": stocks,
         "稳健研究候选": (quant_context.get("data") or {}).get("稳健研究候选"),
         "优先研究标的": add_research_priority_changes(

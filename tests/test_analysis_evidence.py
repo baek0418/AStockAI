@@ -10,6 +10,7 @@ import pandas as pd
 from analysis_evidence import (
     build_report_evidence,
     load_market_context,
+    load_quote_provenance_context,
 )
 from daily_report import create_evidence_report_content, create_rule_cross_signal_summary
 from stock_analysis import create_evidence_markdown_content
@@ -80,6 +81,21 @@ class AnalysisEvidenceTests(unittest.TestCase):
         write_market_csv(self.market / "沪深300_sh000300.csv", list(range(100, 125)))
         write_market_csv(self.market / "中证1000_sh000852.csv", list(range(200, 225)))
 
+    def write_provenance(self, end_date="2026-07-24", fallback=False, attempts=1):
+        provenance_directory = self.root / "data" / "provenance"
+        provenance_directory.mkdir(parents=True, exist_ok=True)
+        write_json(
+            provenance_directory / "000001.json",
+            {
+                "数据源": "腾讯行情 qfqday" if not fallback else "东方财富 qfq kline",
+                "复权方式": "qfq",
+                "日期范围": ["2026-01-01", end_date],
+                "是否使用备用源": fallback,
+                "请求尝试次数": attempts,
+                "更新时间": "2026-07-24 18:00:00",
+            },
+        )
+
     def tearDown(self):
         self.temporary_directory.cleanup()
 
@@ -97,7 +113,21 @@ class AnalysisEvidenceTests(unittest.TestCase):
         self.assertIn("数据不足", evidence["市场环境"]["指数"]["中证1000"]["数据状态"])
         self.assertEqual(evidence["关注股票"][0]["当前量化证据"]["Score"], 70)
 
+    def test_quote_provenance_distinguishes_same_day_fallback_and_missing_records(self):
+        self.write_provenance(fallback=True, attempts=2)
+        audit = load_quote_provenance_context(
+            self.root / "data",
+            [{"code": "000001", "name": "测试股"}, {"code": "000002", "name": "未更新股"}],
+            "2026-07-24",
+        )
+        self.assertEqual(audit["可核对数"], 1)
+        self.assertEqual(audit["未记录数"], 1)
+        self.assertEqual(audit["备用源更新数"], 1)
+        self.assertEqual(audit["重试后成功数"], 1)
+        self.assertIn("审计不完整", audit["状态"])
+
     def test_stock_evidence_values_are_traceable_and_reports_exclude_probabilities(self):
+        self.write_provenance(fallback=True, attempts=2)
         evidence = build_report_evidence(self.output, self.market, self.watchlist)
         stock = evidence["关注股票"][0]
         self.assertEqual(stock["当前量化证据"]["RSI"], 55)
@@ -108,6 +138,8 @@ class AnalysisEvidenceTests(unittest.TestCase):
         stock_markdown = create_evidence_markdown_content(stock, evidence["市场环境"], "AI增强分析暂不可用。")
         email_body = daily_markdown.split("<!-- EMAIL_BODY_END -->", maxsplit=1)[0]
         self.assertIn("## 今天先看市场", email_body)
+        self.assertIn("## 数据状态", email_body)
+        self.assertIn("1 只使用备用源", email_body)
         self.assertIn("## 今天最值得关注的公司", email_body)
         self.assertIn("结论：", email_body)
         self.assertNotIn("## 研究控制面板", email_body)
@@ -116,6 +148,8 @@ class AnalysisEvidenceTests(unittest.TestCase):
         self.assertIn("## 市场环境", daily_markdown)
         self.assertIn("## 今日摘要", daily_markdown)
         self.assertIn("## 研究控制面板", daily_markdown)
+        self.assertIn("## 行情来源与更新核对", daily_markdown)
+        self.assertIn("东方财富 qfq kline / qfq", daily_markdown)
         self.assertIn("预测模型准入", daily_markdown)
         self.assertIn("## 今日重点与风险", daily_markdown)
         self.assertIn("## 20 日研究跟踪优先级", daily_markdown)

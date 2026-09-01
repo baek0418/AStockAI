@@ -758,6 +758,63 @@ def create_daily_brief_section(market_context):
     return "\n".join(lines)
 
 
+def create_reader_data_status_section(quote_provenance):
+    """正文只交代会影响解读边界的数据覆盖与来源状态。"""
+    audit = quote_provenance or {}
+    total = audit.get("关注股数", 0)
+    verified = audit.get("可核对数", 0)
+    lines = ["## 数据状态", ""]
+    lines.append(
+        f"- 日报快照日期：{audit.get('日报快照日期', '数据不足')}；"
+        f"关注股行情来源可核对 {verified}/{total}。"
+    )
+    fallback = audit.get("备用源更新数", 0)
+    retries = audit.get("重试后成功数", 0)
+    if fallback or retries:
+        parts = []
+        if fallback:
+            parts.append(f"{fallback} 只使用备用源")
+        if retries:
+            parts.append(f"{retries} 只经重试后成功")
+        lines.append("- 更新过程：" + "；".join(parts) + "；数据仍按单一来源前复权口径保存。")
+    lines.append("- " + str(audit.get("状态", "数据不足：未找到行情来源审计。")))
+    return "\n".join(lines)
+
+
+def create_quote_provenance_section(quote_provenance):
+    """研究附录提供逐股来源核对，不将来源本身解释为市场信号。"""
+    audit = quote_provenance or {}
+    lines = [
+        "## 行情来源与更新核对",
+        "",
+        "- " + str(audit.get("状态", "数据不足：未找到行情来源审计。")),
+        "- 来源记录反映当前本地日线更新情况；若其日期晚于日报快照，不会反向改写本日报结论。",
+        "",
+        "| 标的 | 行情截至 | 来源与复权 | 更新方式 | 状态 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for item in audit.get("股票", []):
+        source = item.get("数据源")
+        adjustment = item.get("复权方式")
+        source_text = f"{source} / {adjustment}" if source and adjustment else "未记录"
+        update_text = (
+            "未记录"
+            if item.get("状态") != "可核对"
+            else "备用源" if item.get("是否使用备用源") else "主源"
+        )
+        attempts = item.get("请求尝试次数")
+        if isinstance(attempts, int) and attempts > 1:
+            update_text += f"；尝试 {attempts} 次"
+        lines.append(
+            f"| {item.get('股票名称', '未知股票')}（{item.get('股票代码', '')}） | "
+            f"{item.get('数据截至日期', '数据不足')} | {source_text} | {update_text} | "
+            f"{item.get('状态', '数据不足')} |"
+        )
+    if not audit.get("股票"):
+        lines.append("| 暂无启用关注股 | 数据不足 | 数据不足 | 数据不足 | 数据不足 |")
+    return "\n".join(lines)
+
+
 def create_research_control_panel_section(evidence):
     """展示日报的资料覆盖、候选闸门和模型准入边界。"""
     market_context = evidence.get("市场环境", {})
@@ -767,6 +824,7 @@ def create_research_control_panel_section(evidence):
     candidate_market = candidate_snapshot.get("市场环境", {}) if isinstance(candidate_snapshot, dict) else {}
     prediction = evidence.get("预测模型验证", {})
     announcements = evidence.get("公告证据", {})
+    quote_provenance = evidence.get("行情来源审计", {})
     if candidate_market.get("passed"):
         candidate_status = f"已开启；当前 {len(candidate_snapshot.get('候选股票', []))} 只通过全部条件"
     else:
@@ -779,6 +837,7 @@ def create_research_control_panel_section(evidence):
         "| 维度 | 今日状态 |",
         "| --- | --- |",
         f"| 数据截止日 | 量化 {evidence.get('报告日期', '数据不足')}；市场 {market_context.get('数据截至日期', '数据不足')} |",
+        f"| 行情来源审计 | {quote_provenance.get('可核对数', 0)}/{quote_provenance.get('关注股数', 0)} 只可核对；{quote_provenance.get('状态', '数据不足')} |",
         f"| 关注覆盖 | {len(matched)}/{len(stocks)} 只关注股具备当前量化资料 |",
         f"| 20 日候选闸门 | {candidate_status} |",
         f"| 预测模型准入 | {prediction_status}：{prediction_note} |",
@@ -1589,6 +1648,7 @@ def create_evidence_report_content(evidence, ai_summary):
         "# AStockAI 每日关注股票日报",
         f"日期：{evidence.get('报告日期', '数据不足')}",
         create_reader_market_section(market_context),
+        create_reader_data_status_section(evidence.get("行情来源审计")),
         create_reader_focus_section(stocks),
         create_reader_watchlist_section(stocks),
         "> 仅供量化研究参考，不构成投资建议；日线数据不是实时盘中行情。",
@@ -1598,6 +1658,7 @@ def create_evidence_report_content(evidence, ai_summary):
         "以下是系统运行状态、全量清单与原始信号，用于核对和回顾，不是每日必读。",
         create_daily_brief_section(market_context),
         create_research_control_panel_section(evidence),
+        create_quote_provenance_section(evidence.get("行情来源审计")),
         create_action_board_section(stocks),
         create_candidate_alert_section(evidence.get("稳健研究候选")),
         create_research_priority_board_section(evidence.get("优先研究标的", [])),
