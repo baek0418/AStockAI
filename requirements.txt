@@ -7,3 +7,4 @@ python-dotenv
 streamlit
 scikit-learn
 joblib
+baostock==0.8.9

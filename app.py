@@ -42,18 +42,37 @@ from fundamental_data import (
     summarize_fundamental_evidence,
 )
 from expert_research import build_expert_research_memo
-from research_dashboard import build_research_dashboard, research_dashboard_source_mtime
+from research_dashboard import (
+    build_research_dashboard,
+    build_research_workbench_summary,
+    build_user_system_status,
+    research_dashboard_source_mtime,
+)
 from background_tasks import (
     get_active_task,
     list_task_statuses,
     read_task_log_tail,
     start_background_task,
 )
+from portfolio_management import (
+    build_investment_review,
+    build_portfolio_rows,
+    load_portfolio,
+    remove_holding,
+    save_portfolio,
+    summarize_portfolio,
+    upsert_cash,
+    upsert_holding,
+)
+from five_day_risk_range import build_five_day_risk_range
 
 
 PROJECT_DIRECTORY = Path(__file__).parent.resolve()
 OUTPUT_DIRECTORY = PROJECT_DIRECTORY / "output"
 WATCHLIST_FILE = PROJECT_DIRECTORY / "watchlist.json"
+PORTFOLIO_FILE = PROJECT_DIRECTORY / "data" / "portfolio.json"
+RAW_INTERVAL_DATA_DIRECTORY = PROJECT_DIRECTORY / "data" / "raw_interval"
+INTERVAL_RESEARCH_DIRECTORY = OUTPUT_DIRECTORY / "research"
 FUNDAMENTAL_METRICS = (
     "营业总收入",
     "归母净利润",
@@ -296,18 +315,57 @@ def get_report_file(report_date):
     return dated_file if dated_file.is_file() else find_latest_file(OUTPUT_DIRECTORY, "每日关注股票日报_*.md")
 
 
-def render_home(quant_snapshot, watchlist_snapshot, daily_report_file):
-    """渲染首页概览及最新日报入口。"""
-    st.header("首页")
+def render_home(quant_snapshot, watchlist_snapshot, daily_report_file, daily_signal):
+    """围绕本地持仓渲染投资总览，运行状态只作为次级资料覆盖信息。"""
+    st.header("投资总览")
     report_date = quant_snapshot.get("快照日期", "未提供")
-    watch_stocks = watchlist_snapshot.get("stocks", []) if isinstance(watchlist_snapshot, dict) else []
-    matched = watchlist_snapshot.get("matched", "未提供") if isinstance(watchlist_snapshot, dict) else "未提供"
-    missing = watchlist_snapshot.get("missing", "未提供") if isinstance(watchlist_snapshot, dict) else "未提供"
-    columns = st.columns(4)
-    columns[0].metric("最新量化快照日期", report_date)
-    columns[1].metric("关注股数量", len(watch_stocks))
-    columns[2].metric("匹配数量", matched)
-    columns[3].metric("缺失数量", missing)
+    try:
+        portfolio = load_portfolio(PORTFOLIO_FILE)
+    except ValueError as error:
+        st.error(str(error))
+        return
+    rows = build_portfolio_rows(
+        portfolio,
+        _local_quote_map(quant_snapshot),
+        daily_signal.get("stocks", []) if isinstance(daily_signal, dict) else [],
+    )
+    summary = summarize_portfolio(rows, portfolio)
+    if rows:
+        assets = summary["已报价持仓市值"] + summary["现金余额"]
+        top_weight = max(
+            (row["当前市值"] or 0 for row in rows), default=0
+        ) / summary["已报价持仓市值"] * 100 if summary["已报价持仓市值"] else None
+        columns = st.columns(5)
+        columns[0].metric("本地资产合计", _money(assets))
+        columns[1].metric("已报价持仓市值", _money(summary["已报价持仓市值"]))
+        columns[2].metric("现金余额", _money(summary["现金余额"]))
+        columns[3].metric("已报价浮盈亏", _money(summary["已报价浮盈亏"]))
+        columns[4].metric("最大单一持仓占比", f"{top_weight:.2f}%" if top_weight is not None else "数据不足")
+        if summary["缺少本地报价数"]:
+            st.warning(f"{summary['缺少本地报价数']} 只实际持仓未匹配本地快照；请先更新数据，再对市值或研究状态作判断。")
+
+        st.subheader("今天的持仓核对清单")
+        st.caption(f"研究快照日期：{report_date}。这是已有事实的核对顺序，不是买卖建议。")
+        review_rows = build_investment_review(rows, daily_signal.get("stocks", []) if isinstance(daily_signal, dict) else [])
+        st.dataframe(
+            review_rows,
+            use_container_width=True,
+            hide_index=True,
+            column_config={"持仓占比": st.column_config.NumberColumn(format="%.2f%%")},
+        )
+    else:
+        st.info("尚未录入本地持仓；投资总览会在你确认保存首条持仓后显示资金暴露、数据缺口和今日核对清单。")
+
+    with st.expander("系统资料覆盖", expanded=False):
+        st.caption("以下是报告资料的覆盖情况，不等同于你的持仓结论。")
+        watch_stocks = watchlist_snapshot.get("stocks", []) if isinstance(watchlist_snapshot, dict) else []
+        matched = watchlist_snapshot.get("matched", "未提供") if isinstance(watchlist_snapshot, dict) else "未提供"
+        missing = watchlist_snapshot.get("missing", "未提供") if isinstance(watchlist_snapshot, dict) else "未提供"
+        columns = st.columns(4)
+        columns[0].metric("最新量化快照日期", report_date)
+        columns[1].metric("关注股数量", len(watch_stocks))
+        columns[2].metric("匹配数量", matched)
+        columns[3].metric("缺失数量", missing)
 
     st.subheader("最近日报")
     if not daily_report_file:
@@ -409,89 +467,90 @@ def render_background_task_controls():
 
 
 def render_research_dashboard(dashboard):
-    """渲染严格只读的研究产物总览，不把任何历史结果转成交易信号。"""
-    st.header("研究总览")
-    st.caption("默认只读取已有本地报告；数据更新和研究重建只会在明确点击后以后台任务执行。")
-    conclusion = dashboard.get("总览结论", {})
-    st.warning(f"研究展示边界：{conclusion.get('说明', '仅作研究。')}")
-    render_background_task_controls()
+    """渲染用户优先的系统状态；研究工程细节默认收起。"""
+    st.header("系统状态")
+    st.caption("这里只说明系统是否已经准备好供你查看，不提供买卖建议。")
+    user_status = build_user_system_status(dashboard)
+    notice = getattr(st, user_status["提示级别"], st.info)
+    notice(f"**{user_status['标题']}**\n\n{user_status['说明']}\n\n{user_status['建议动作']}")
+    columns = st.columns(2)
+    columns[0].metric("日常数据", user_status["数据状态"])
+    columns[1].metric("模型预测", user_status["模型状态"])
+    st.caption(user_status["模型说明"])
 
-    @st.fragment(run_every=3)
-    def task_status_fragment():
-        render_background_task_status()
+    with st.expander("手动刷新数据（通常不需要）", expanded=False):
+        st.caption("只有数据不足或你明确希望获取新日线时才使用；不会发送邮件或执行交易。")
+        render_background_task_controls()
 
-    task_status_fragment()
+        @st.fragment(run_every=3)
+        def task_status_fragment():
+            render_background_task_status()
+
+        task_status_fragment()
 
     health = dashboard.get("数据健康", {})
-    st.subheader("数据健康")
-    if health.get("状态") == "可用":
-        columns = st.columns(4)
-        columns[0].metric("可训练股票", health.get("可训练股票数", "数据不足"))
-        columns[1].metric("最新日线日期", health.get("最新日线日期", "数据不足"))
-        columns[2].metric("数据问题文件", health.get("数据问题文件数", "数据不足"))
-        columns[3].metric("研究池外文件", health.get("研究池外文件数", "数据不足"))
-        st.caption(health.get("说明", ""))
-        st.caption(health.get("时效说明", ""))
-        with st.expander("查看数据审计明细", expanded=False):
+    with st.expander("高级信息：数据与模型检查", expanded=False):
+        st.caption("以下内容用于排查研究工程，不是日常持仓决策所必需的信息。")
+        if health.get("状态") == "可用":
+            columns = st.columns(4)
+            columns[0].metric("可训练股票", health.get("可训练股票数", "数据不足"))
+            columns[1].metric("最新日线日期", health.get("最新日线日期", "数据不足"))
+            columns[2].metric("数据问题文件", health.get("数据问题文件数", "数据不足"))
+            columns[3].metric("研究池外文件", health.get("研究池外文件数", "数据不足"))
+            st.caption(health.get("说明", ""))
             st.dataframe(health.get("文件审计", []), use_container_width=True, hide_index=True)
             if health.get("特征构建跳过文件"):
                 st.write("特征构建跳过文件：")
                 st.dataframe(health["特征构建跳过文件"], use_container_width=True, hide_index=True)
-    else:
-        st.info(health.get("说明", "尚无数据审计报告。"))
+        else:
+            st.info(health.get("说明", "尚无数据审计报告。"))
 
-    model = dashboard.get("模型验证", {})
-    st.subheader("v5.1 样本外验证")
-    if model.get("状态") == "数据不足":
-        st.info(model.get("说明", "尚无样本外验证报告。"))
-    else:
-        status_message = "技术验证通过" if model.get("技术验证通过") else "未通过技术验证"
-        (st.success if model.get("技术验证通过") else st.warning)(
-            f"{status_message}；概率展示：{'允许' if model.get('允许展示概率') else '不允许'}。"
-        )
-        columns = st.columns(4)
-        columns[0].metric("训练股票", model.get("训练股票数", "数据不足"))
-        columns[1].metric("训练截止日期", model.get("训练截止日期", "数据不足"))
-        columns[2].metric("完成/校准窗口", f"{model.get('完成窗口数', 0)}/{model.get('完成校准窗口数', 0)}")
-        metrics = model.get("样本外指标", {})
-        baseline = model.get("朴素概率基线", {})
-        columns[3].metric("样本外 ROC-AUC", _format_metric(metrics.get("roc_auc")))
-        st.caption(model.get("展示边界", "研究结果保持隔离。"))
-        metric_rows = [
-            {"指标": "Brier Score", "模型": _format_metric(metrics.get("brier_score")), "朴素基线": _format_metric(baseline.get("brier_score"))},
-            {"指标": "Log Loss", "模型": _format_metric(metrics.get("log_loss")), "朴素基线": _format_metric(baseline.get("log_loss"))},
-            {"指标": "ROC-AUC", "模型": _format_metric(metrics.get("roc_auc")), "朴素基线": _format_metric(baseline.get("roc_auc"))},
-            {"指标": "准确率", "模型": _format_metric(metrics.get("accuracy")), "朴素基线": _format_metric(baseline.get("accuracy"))},
-        ]
-        st.dataframe(metric_rows, use_container_width=True, hide_index=True)
-        with st.expander("查看验证风险提示", expanded=False):
+        model = dashboard.get("模型验证", {})
+        st.markdown("#### v5.1 样本外验证")
+        if model.get("状态") == "数据不足":
+            st.info(model.get("说明", "尚无样本外验证报告。"))
+        else:
+            columns = st.columns(4)
+            columns[0].metric("训练股票", model.get("训练股票数", "数据不足"))
+            columns[1].metric("训练截止日期", model.get("训练截止日期", "数据不足"))
+            columns[2].metric("完成/校准窗口", f"{model.get('完成窗口数', 0)}/{model.get('完成校准窗口数', 0)}")
+            metrics = model.get("样本外指标", {})
+            baseline = model.get("朴素概率基线", {})
+            columns[3].metric("样本外 ROC-AUC", _format_metric(metrics.get("roc_auc")))
+            metric_rows = [
+                {"指标": "Brier Score", "模型": _format_metric(metrics.get("brier_score")), "朴素基线": _format_metric(baseline.get("brier_score"))},
+                {"指标": "Log Loss", "模型": _format_metric(metrics.get("log_loss")), "朴素基线": _format_metric(baseline.get("log_loss"))},
+                {"指标": "ROC-AUC", "模型": _format_metric(metrics.get("roc_auc")), "朴素基线": _format_metric(baseline.get("roc_auc"))},
+                {"指标": "准确率", "模型": _format_metric(metrics.get("accuracy")), "朴素基线": _format_metric(baseline.get("accuracy"))},
+            ]
+            st.dataframe(metric_rows, use_container_width=True, hide_index=True)
+            st.markdown("**验证风险提示**")
             for risk in model.get("风险提示", []):
                 st.markdown(f"- {risk}")
 
-    portfolio = dashboard.get("组合回测", {})
-    st.subheader("严格滚动样本外组合回测")
-    if portfolio.get("状态") != "可用":
-        st.info(portfolio.get("说明", "尚无严格滚动样本外组合回测报告。"))
-    else:
-        statistics = portfolio.get("统计", {})
-        columns = st.columns(4)
-        columns[0].metric("策略累计收益", _format_percent(statistics.get("累计收益率")))
-        columns[1].metric("相对基准超额", _format_percent(statistics.get("超额累计收益率")))
-        columns[2].metric("最大回撤", _format_percent(statistics.get("最大回撤")))
-        columns[3].metric("交易笔数", statistics.get("交易笔数", "数据不足"))
-        st.caption(f"策略：{portfolio.get('策略', '未提供')} ｜ 基准：{portfolio.get('市场基准', '未提供')}。{portfolio.get('说明', '')}")
-        with st.expander("查看组合回测诊断", expanded=False):
+        portfolio = dashboard.get("组合回测", {})
+        st.markdown("#### 滚动样本外组合实验")
+        if portfolio.get("状态") != "可用":
+            st.info(portfolio.get("说明", "尚无严格滚动样本外组合回测报告。"))
+        else:
+            statistics = portfolio.get("统计", {})
+            columns = st.columns(4)
+            columns[0].metric("策略累计收益", _format_percent(statistics.get("累计收益率")))
+            columns[1].metric("相对基准超额", _format_percent(statistics.get("超额累计收益率")))
+            columns[2].metric("最大回撤", _format_percent(statistics.get("最大回撤")))
+            columns[3].metric("交易笔数", statistics.get("交易笔数", "数据不足"))
+            st.caption(f"策略：{portfolio.get('策略', '未提供')} ｜ 基准：{portfolio.get('市场基准', '未提供')}。{portfolio.get('说明', '')}")
             st.json({
                 "参数": portfolio.get("参数", {}),
                 "信号覆盖诊断": portfolio.get("信号覆盖诊断", {}),
                 "跳过文件": portfolio.get("跳过文件", []),
             })
 
-    st.caption("研究来源：" + " ｜ ".join(
-        path for path in (
-            health.get("报告文件"), model.get("报告文件"), portfolio.get("报告文件")
-        ) if path
-    ))
+        st.caption("研究来源：" + " ｜ ".join(
+            path for path in (
+                health.get("报告文件"), model.get("报告文件"), portfolio.get("报告文件")
+            ) if path
+        ))
 
 
 def render_stock_details(stock_record, daily_signal=None, signal_override=None, research_override=None):
@@ -508,6 +567,25 @@ def render_stock_details(stock_record, daily_signal=None, signal_override=None, 
     metrics[3].metric("MA20", fact_snapshot["MA20"])
     metrics[4].metric("MACD", fact_snapshot["MACD"])
     st.write(f"趋势：{fact_snapshot['趋势']} ｜ 建议：{fact_snapshot['建议']} ｜ 风险标签：{fact_snapshot['风险标签']}")
+
+    risk_range = build_five_day_risk_range(
+        {"code": fact_snapshot["股票代码"], "name": fact_snapshot["股票名称"]},
+        RAW_INTERVAL_DATA_DIRECTORY,
+        INTERVAL_RESEARCH_DIRECTORY,
+    )
+    if risk_range["状态"] == "可用":
+        st.markdown("#### 未来 5 日风险范围")
+        range_columns = st.columns(3)
+        range_columns[0].metric("常见收盘范围", f"¥{risk_range['下限价格']:.3f} – ¥{risk_range['上限价格']:.3f}")
+        range_columns[1].metric("最近本地收盘", f"¥{risk_range['本地收盘']:.3f}")
+        range_columns[2].metric("历史覆盖", f"约 {risk_range['历史覆盖率']:.1f}%")
+        st.caption(
+            f"数据截至 {risk_range['数据日期']}。{risk_range['说明']} "
+            f"验证样本 {risk_range['验证样本数']:,} 个；{risk_range['边界']}"
+        )
+    else:
+        st.caption(f"未来 5 日风险范围暂不可用：{risk_range['说明']}")
+
     if st.button("下载/刷新基本面快照", key=f"fundamentals_{fact_snapshot['股票代码']}"):
         with st.spinner("正在下载最近报告期基本面事实…"):
             result = collect_fundamental_snapshot(fact_snapshot["股票代码"])
@@ -725,6 +803,145 @@ def render_watchlist(watchlist_data):
     st.caption("首版仅展示 watchlist.json，不在页面直接修改关注配置。")
 
 
+def _local_quote_map(quant_snapshot):
+    """从本地量化快照提取最近收盘；页面不得把日线收盘标成实时行情。"""
+    quote_date = str(quant_snapshot.get("快照日期", "数据不足"))
+    quotes = {}
+    for stock in quant_snapshot.get("股票排行榜", []) if isinstance(quant_snapshot, dict) else []:
+        if not isinstance(stock, dict):
+            continue
+        code = str(stock.get("股票代码", "")).strip().zfill(6)
+        close = stock.get("收盘价")
+        if code.isdigit() and len(code) == 6:
+            quotes[code] = {"close": close, "date": quote_date, "advice": stock.get("建议", "数据不足")}
+    return quotes
+
+
+def _money(value):
+    return f"¥{value:,.2f}" if isinstance(value, (int, float)) else "数据不足"
+
+
+def render_portfolio(quant_snapshot, daily_signal):
+    """渲染仅本地保存的持仓台账，研究数据与实际账户数据保持隔离。"""
+    st.header("持仓管理（本地）")
+    st.caption("账户、成本与数量只保存于本机 data/portfolio.json（已被 Git 忽略）。行情为本地量化快照中的最近收盘，不是实时盘中行情。")
+    try:
+        portfolio = load_portfolio(PORTFOLIO_FILE)
+    except ValueError as error:
+        st.error(str(error))
+        return
+
+    quotes = _local_quote_map(quant_snapshot)
+    signal_stocks = daily_signal.get("stocks", []) if isinstance(daily_signal, dict) else []
+    rows = build_portfolio_rows(portfolio, quotes, signal_stocks)
+    summary = summarize_portfolio(rows, portfolio)
+    metrics = st.columns(5)
+    metrics[0].metric("持仓标的", summary["持仓数量"])
+    metrics[1].metric("持仓成本", _money(summary["持仓成本"]))
+    metrics[2].metric("已报价市值", _money(summary["已报价持仓市值"]))
+    metrics[3].metric("已报价浮盈亏", _money(summary["已报价浮盈亏"]))
+    metrics[4].metric("现金余额", _money(summary["现金余额"]))
+    if summary["缺少本地报价数"]:
+        st.warning(f"{summary['缺少本地报价数']} 只持仓未匹配本地量化快照，未估算其市值或浮盈亏。")
+
+    if rows:
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "平均成本": st.column_config.NumberColumn(format="¥%.3f"),
+                "本地最近收盘": st.column_config.NumberColumn(format="¥%.3f"),
+                "持仓成本": st.column_config.NumberColumn(format="¥%.2f"),
+                "当前市值": st.column_config.NumberColumn(format="¥%.2f"),
+                "浮盈亏": st.column_config.NumberColumn(format="¥%.2f"),
+                "浮盈亏率": st.column_config.NumberColumn(format="%.2f%%"),
+            },
+        )
+    else:
+        st.info("尚未录入持仓。下面可新增第一条本地持仓记录。")
+
+    stock_options = [stock for stock in quant_snapshot.get("股票排行榜", []) if isinstance(stock, dict)]
+    with st.expander("新增或更新持仓", expanded=not rows):
+        if not stock_options:
+            st.info("缺少本地量化快照，暂不能从股票池选择标的。")
+        else:
+            labels = [f"{stock.get('股票名称', '未知')}（{str(stock.get('股票代码', '')).zfill(6)}）" for stock in stock_options]
+            with st.form("portfolio_holding_form", clear_on_submit=False):
+                account = st.text_input("账户名称", placeholder="例如：普通账户")
+                choice = st.selectbox("股票", range(len(stock_options)), format_func=lambda index: labels[index])
+                quantity = st.number_input("持仓数量", min_value=1, step=100)
+                cost_price = st.number_input("平均成本", min_value=0.0, step=0.001, format="%.3f")
+                category = st.text_input("类别（可选）", placeholder="例如：长期观察")
+                if st.form_submit_button("生成待确认草稿"):
+                    selected = stock_options[choice]
+                    try:
+                        preview = upsert_holding(
+                            {"version": "1.0", "holdings": [], "cash": []},
+                            {
+                                "account": account,
+                                "code": selected.get("股票代码"),
+                                "name": selected.get("股票名称"),
+                                "quantity": quantity,
+                                "cost_price": cost_price,
+                                "category": category,
+                            },
+                        )["holdings"][0]
+                    except ValueError as error:
+                        st.error(str(error))
+                    else:
+                        st.session_state["portfolio_holding_draft"] = preview
+
+            draft = st.session_state.get("portfolio_holding_draft")
+            if isinstance(draft, dict):
+                st.markdown("#### 待确认持仓")
+                st.dataframe([draft], use_container_width=True, hide_index=True)
+                confirmed = st.checkbox("我已核对账户、股票代码、数量和平均成本，确认写入本地账本。", key="portfolio_holding_confirm")
+                confirm_column, cancel_column = st.columns(2)
+                if confirm_column.button("确认写入本地持仓", disabled=not confirmed, type="primary"):
+                    try:
+                        save_portfolio(PORTFOLIO_FILE, upsert_holding(portfolio, draft))
+                    except ValueError as error:
+                        st.error(str(error))
+                    else:
+                        st.session_state.pop("portfolio_holding_draft", None)
+                        st.session_state.pop("portfolio_holding_confirm", None)
+                        st.success("本地持仓已确认保存。")
+                        st.rerun()
+                if cancel_column.button("放弃此草稿"):
+                    st.session_state.pop("portfolio_holding_draft", None)
+                    st.session_state.pop("portfolio_holding_confirm", None)
+                    st.rerun()
+
+    with st.expander("更新现金余额", expanded=False):
+        with st.form("portfolio_cash_form", clear_on_submit=True):
+            cash_account = st.text_input("账户名称", key="cash_account")
+            cash_amount = st.number_input("现金余额", min_value=0.0, step=100.0)
+            if st.form_submit_button("保存本地现金"):
+                try:
+                    save_portfolio(PORTFOLIO_FILE, upsert_cash(portfolio, cash_account, cash_amount))
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.success("本地现金余额已保存。")
+                    st.rerun()
+
+    if portfolio.get("holdings"):
+        with st.expander("删除持仓", expanded=False):
+            delete_options = [f"{item['account']}｜{item['name']}（{item['code']}）" for item in portfolio["holdings"]]
+            selected_delete = st.selectbox("选择要删除的持仓", range(len(portfolio["holdings"]),), format_func=lambda index: delete_options[index])
+            delete_confirmed = st.checkbox("我确认删除这条本地持仓记录。", key="portfolio_delete_confirm")
+            if st.button("删除所选持仓", type="secondary", disabled=not delete_confirmed):
+                selected = portfolio["holdings"][selected_delete]
+                try:
+                    save_portfolio(PORTFOLIO_FILE, remove_holding(portfolio, selected["account"], selected["code"]))
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.success("本地持仓已删除。")
+                    st.rerun()
+
+
 def main():
     """启动本机 Streamlit 页面。"""
     if st is None:
@@ -775,9 +992,11 @@ def main():
         st.warning(f"daily_signal 不可用：{error}")
         daily_signal = None
 
-    home_tab, research_tab, query_tab, watchlist_tab = st.tabs(["首页", "研究总览", "单股票查询", "关注列表"])
+    home_tab, portfolio_tab, query_tab, watchlist_tab, research_tab = st.tabs(["投资总览", "持仓管理", "单股票查询", "关注列表", "系统状态"])
     with home_tab:
-        render_home(quant_snapshot, watchlist_snapshot, get_report_file(report_date))
+        render_home(quant_snapshot, watchlist_snapshot, get_report_file(report_date), daily_signal)
+    with portfolio_tab:
+        render_portfolio(quant_snapshot, daily_signal)
     with research_tab:
         render_research_dashboard(dashboard)
     with query_tab:

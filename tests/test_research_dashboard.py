@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from research_dashboard import build_research_dashboard, research_dashboard_source_mtime
+from research_dashboard import (
+    build_research_dashboard,
+    build_research_workbench_summary,
+    build_user_system_status,
+    research_dashboard_source_mtime,
+)
 
 
 def write_json(path, data):
@@ -79,6 +84,31 @@ class ResearchDashboardTests(unittest.TestCase):
         self.assertEqual(model["完成校准窗口数"], 1)
         self.assertEqual(portfolio["统计"]["交易笔数"], 12)
         self.assertIsInstance(source_mtime, int)
+
+    def test_workbench_keeps_an_unapproved_model_out_of_investment_display(self):
+        summary = build_research_workbench_summary(
+            {
+                "数据健康": {"状态": "可用", "时效滞后日": 0, "时效说明": "同日。"},
+                "模型验证": {"状态": "可用", "技术验证通过": True, "允许展示概率": False, "展示边界": "保持研究隔离。"},
+                "组合回测": {"状态": "可用"},
+            }
+        )
+
+        self.assertEqual(summary["研究决策"], "模型仍保持研究隔离")
+        self.assertIn("人工复核", summary["下一步"])
+        self.assertEqual(summary["提示级别"], "warning")
+
+    def test_user_status_explains_that_an_unapproved_model_does_not_block_daily_use(self):
+        status = build_user_system_status(
+            {
+                "数据健康": {"状态": "可用", "时效滞后日": 0},
+                "模型验证": {"技术验证通过": False, "允许展示概率": False},
+            }
+        )
+
+        self.assertEqual(status["数据状态"], "可用")
+        self.assertEqual(status["模型状态"], "暂不显示模型预测")
+        self.assertIn("不影响", status["模型说明"])
 
 
 if __name__ == "__main__":
