@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from market_data_sources import MarketDataSourceError, fetch_daily_history, normalize_history
+from market_data_sources import MarketDataSourceError, RetryPolicy, fetch_daily_history, normalize_history
 
 
 def make_history():
@@ -64,6 +64,42 @@ class MarketDataSourceTests(unittest.TestCase):
                 "sz000001",
                 sources=[FakeSource("主源", error=ValueError("超时")), FakeSource("备用源", error=ValueError("无数据"))],
             )
+
+    def test_source_is_retried_before_falling_back(self):
+        class FlakySource(FakeSource):
+            def __init__(self):
+                super().__init__("主源")
+                self.remaining_failures = 1
+
+            def fetch(self, market_code):
+                self.calls.append(market_code)
+                if self.remaining_failures:
+                    self.remaining_failures -= 1
+                    raise ValueError("临时超时")
+                return make_history()
+
+        primary = FlakySource()
+        backup = FakeSource("备用源", value=make_history())
+        result = fetch_daily_history(
+            "sz000001",
+            sources=[primary, backup],
+            retry_policy=RetryPolicy(max_attempts=2, initial_backoff_seconds=0),
+        )
+
+        self.assertEqual(primary.calls, ["sz000001", "sz000001"])
+        self.assertEqual(backup.calls, [])
+        self.assertEqual(result.request_attempts, 2)
+
+    def test_failure_audit_records_retry_count(self):
+        primary = FakeSource("主源", error=ValueError("临时超时"))
+        backup = FakeSource("备用源", value=make_history())
+        result = fetch_daily_history(
+            "sz000001",
+            sources=[primary, backup],
+            retry_policy=RetryPolicy(max_attempts=2, initial_backoff_seconds=0),
+        )
+        self.assertEqual(result.failures[0]["尝试次数"], 2)
+        self.assertEqual(result.request_attempts, 3)
 
     def test_normalizer_rejects_invalid_ohlc_rows_but_keeps_valid_rows(self):
         history = make_history()

@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from market_data_sources import MarketDataFetchResult, fetch_daily_history
+from market_data_sources import MarketDataFetchResult, RequestPacer, RetryPolicy, fetch_daily_history
 from process_journal import ProcessJournal
 from stock_universe import get_enabled_stock_universe
 
@@ -109,6 +109,7 @@ def _save_stock_record(stock, data_directory, fetch_history=fetch_daily_history)
         "source": result.source,
         "adjustment": result.adjustment,
         "used_fallback": result.used_fallback,
+        "request_attempts": result.request_attempts,
         "rows": int(len(history_data)),
     }
 
@@ -122,8 +123,15 @@ def save_stock(name, code, data_directory, fetch_history=fetch_daily_history):
     return Path(record["output_file"])
 
 
-def run_update_data(project_directory=None, stock_universe=None, max_workers=3, fetch_history=fetch_daily_history):
-    """并发更新全股票池；每只股票主源失败后才整只切换备用源。"""
+def run_update_data(
+    project_directory=None,
+    stock_universe=None,
+    max_workers=3,
+    fetch_history=fetch_daily_history,
+    request_interval_seconds=0.35,
+    max_attempts=3,
+):
+    """并发更新全股票池，采用全局限速与短暂重试保护公开行情源。"""
     project_directory = Path(project_directory or Path(__file__).parent)
     data_directory = project_directory / "data"
     data_directory.mkdir(parents=True, exist_ok=True)
@@ -146,8 +154,28 @@ def run_update_data(project_directory=None, stock_universe=None, max_workers=3, 
 
     if not isinstance(max_workers, int) or max_workers < 1:
         raise ValueError("max_workers 必须是正整数。")
+    if request_interval_seconds < 0:
+        raise ValueError("request_interval_seconds 不能为负数。")
+    if not isinstance(max_attempts, int) or max_attempts < 1:
+        raise ValueError("max_attempts 必须是正整数。")
     stocks = list(stock_universe)
-    journal.event("初始化股票池", "info", 股票数=len(stocks), 并发数=max_workers)
+    if fetch_history is fetch_daily_history:
+        pacer = RequestPacer(request_interval_seconds)
+        retry_policy = RetryPolicy(max_attempts=max_attempts, initial_backoff_seconds=0.5)
+
+        def batch_fetch_history(market_code):
+            return fetch_daily_history(market_code, retry_policy=retry_policy, pacer=pacer)
+    else:
+        batch_fetch_history = fetch_history
+
+    journal.event(
+        "初始化股票池",
+        "info",
+        股票数=len(stocks),
+        并发数=max_workers,
+        请求最小间隔秒=request_interval_seconds,
+        单源最大尝试次数=max_attempts,
+    )
     if not stocks:
         journal.event("初始化股票池", "failed", 原因="股票池为空。")
         return {
@@ -162,7 +190,7 @@ def run_update_data(project_directory=None, stock_universe=None, max_workers=3, 
     failed_stocks = []
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="行情更新") as executor:
         futures = {
-            executor.submit(_save_stock_record, stock, data_directory, fetch_history): stock
+            executor.submit(_save_stock_record, stock, data_directory, batch_fetch_history): stock
             for stock in stocks
         }
         for future in as_completed(futures):
@@ -178,6 +206,7 @@ def run_update_data(project_directory=None, stock_universe=None, max_workers=3, 
                     数据源=record["source"],
                     复权方式=record["adjustment"],
                     有效行数=record["rows"],
+                    请求尝试次数=record["request_attempts"],
                 )
             except Exception as error:
                 failed = {"code": stock.get("code", ""), "name": stock.get("name", ""), "error": str(error)}

@@ -27,6 +27,7 @@ def make_result(source="主源", fallback=False):
         used_fallback=fallback,
         attempted_sources=("主源", source) if fallback else (source,),
         failures=({"数据源": "主源", "原因": "超时"},) if fallback else (),
+        request_attempts=2 if fallback else 1,
     )
 
 
@@ -56,6 +57,7 @@ class UpdateDataBatchTests(unittest.TestCase):
             self.assertFalse((data / "失败股历史.csv").exists())
             self.assertEqual(provenance["数据源"], "备用源")
             self.assertTrue(provenance["是否使用备用源"])
+            self.assertEqual(provenance["请求尝试次数"], 2)
             self.assertTrue(Path(result["details"]["event_log"]).is_file())
 
 

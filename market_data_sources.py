@@ -7,6 +7,8 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+import threading
+import time
 from typing import Protocol
 
 import pandas as pd
@@ -31,6 +33,43 @@ class DailyHistorySource(Protocol):
 
 
 @dataclass(frozen=True)
+class RetryPolicy:
+    """单一来源的短暂重试策略；批量任务会显式提高重试次数。"""
+
+    max_attempts: int = 1
+    initial_backoff_seconds: float = 0.0
+
+    def __post_init__(self):
+        if not isinstance(self.max_attempts, int) or self.max_attempts < 1:
+            raise ValueError("max_attempts 必须是正整数。")
+        if self.initial_backoff_seconds < 0:
+            raise ValueError("initial_backoff_seconds 不能为负数。")
+
+
+class RequestPacer:
+    """跨线程统一限速，避免全市场批处理同时冲击同一公开行情服务。"""
+
+    def __init__(self, min_interval_seconds=0.0, monotonic=time.monotonic, sleep=time.sleep):
+        if min_interval_seconds < 0:
+            raise ValueError("min_interval_seconds 不能为负数。")
+        self.min_interval_seconds = float(min_interval_seconds)
+        self._monotonic = monotonic
+        self._sleep = sleep
+        self._next_request_at = 0.0
+        self._lock = threading.Lock()
+
+    def wait_turn(self):
+        """为当前请求预留一个时间槽；锁不会跨网络请求持有。"""
+        with self._lock:
+            now = self._monotonic()
+            scheduled_at = max(now, self._next_request_at)
+            self._next_request_at = scheduled_at + self.min_interval_seconds
+        delay = scheduled_at - now
+        if delay > 0:
+            self._sleep(delay)
+
+
+@dataclass(frozen=True)
 class MarketDataFetchResult:
     """一次成功日线请求及其最小可审计元数据。"""
 
@@ -40,6 +79,7 @@ class MarketDataFetchResult:
     used_fallback: bool
     attempted_sources: tuple[str, ...]
     failures: tuple[dict, ...]
+    request_attempts: int = 1
 
     def provenance(self, stock_code: str, market_code: str) -> dict:
         latest = self.history["日期"].max()
@@ -53,6 +93,7 @@ class MarketDataFetchResult:
             "是否使用备用源": self.used_fallback,
             "尝试来源": list(self.attempted_sources),
             "失败记录": list(self.failures),
+            "请求尝试次数": int(self.request_attempts),
             "有效行数": int(len(self.history)),
             "日期范围": [
                 earliest.strftime("%Y-%m-%d"),
@@ -167,27 +208,47 @@ def default_daily_sources() -> tuple[DailyHistorySource, ...]:
     return TencentQfqDailySource(), EastmoneyQfqDailySource()
 
 
-def fetch_daily_history(market_code: str, sources=None) -> MarketDataFetchResult:
-    """按顺序尝试完整日线源，成功后立即返回，不跨来源拼接。"""
+def fetch_daily_history(
+    market_code: str,
+    sources=None,
+    retry_policy=None,
+    pacer=None,
+    sleep=time.sleep,
+) -> MarketDataFetchResult:
+    """按顺序尝试完整日线源；每个来源可短暂重试，但不跨来源拼接。"""
     candidates = tuple(sources or default_daily_sources())
     if not candidates:
         raise ValueError("至少需要配置一个日线数据源。")
+    retry_policy = retry_policy or RetryPolicy()
     failures = []
     attempted = []
+    request_attempts = 0
     for index, source in enumerate(candidates):
         source_name = getattr(source, "name", type(source).__name__)
         attempted.append(source_name)
-        try:
-            history = normalize_history(source.fetch(market_code))
-            return MarketDataFetchResult(
-                history=history,
-                source=source_name,
-                adjustment=getattr(source, "adjustment", "unknown"),
-                used_fallback=index > 0,
-                attempted_sources=tuple(attempted),
-                failures=tuple(failures),
-            )
-        except (OSError, ValueError, requests.RequestException) as error:
-            failures.append({"数据源": source_name, "原因": str(error)})
+        last_error = None
+        for attempt in range(1, retry_policy.max_attempts + 1):
+            request_attempts += 1
+            if pacer is not None:
+                pacer.wait_turn()
+            try:
+                history = normalize_history(source.fetch(market_code))
+                return MarketDataFetchResult(
+                    history=history,
+                    source=source_name,
+                    adjustment=getattr(source, "adjustment", "unknown"),
+                    used_fallback=index > 0,
+                    attempted_sources=tuple(attempted),
+                    failures=tuple(failures),
+                    request_attempts=request_attempts,
+                )
+            except (OSError, ValueError, requests.RequestException) as error:
+                last_error = error
+                if attempt < retry_policy.max_attempts and retry_policy.initial_backoff_seconds > 0:
+                    sleep(retry_policy.initial_backoff_seconds * (2 ** (attempt - 1)))
+        failure = {"数据源": source_name, "原因": str(last_error)}
+        if retry_policy.max_attempts > 1:
+            failure["尝试次数"] = retry_policy.max_attempts
+        failures.append(failure)
     summary = "；".join(f"{item['数据源']}：{item['原因']}" for item in failures)
     raise MarketDataSourceError(f"所有日线数据源均失败：{summary}")
