@@ -197,16 +197,39 @@ def run_daily_report_step():
     """先同步摘要和日间信号，再生成依赖两者的每日关注股票日报。"""
     _, summary_file = run_research_summary()
     signal_file = run_daily_signal()
-    report_file = run_daily_report()
+    report_result = run_daily_report(return_details=True)
+    if not isinstance(report_result, dict) or not report_result.get("output_file"):
+        raise ValueError("日报模块未返回报告文件和数据审计摘要。")
     return {
         "summary_file": summary_file,
         "signal_file": signal_file,
-        "output_file": report_file,
+        "output_file": report_result["output_file"],
+        "quote_provenance": report_result.get("quote_provenance", {}),
     }
 
 
+def _serialize_quote_provenance_audit(audit):
+    """提取可安全写入流水线状态的日报行情审计摘要。"""
+    if not isinstance(audit, dict):
+        return None
+
+    fields = (
+        "日报快照日期",
+        "关注股数",
+        "可核对数",
+        "同日记录数",
+        "较新记录数",
+        "落后记录数",
+        "未记录数",
+        "备用源更新数",
+        "重试后成功数",
+        "状态",
+    )
+    return {field: audit.get(field) for field in fields}
+
+
 def get_daily_report_status(step_record):
-    """校验日报是否为本次生成，并识别 AI 降级状态。"""
+    """校验日报是否为本次生成，并暴露 AI 与行情审计降级状态。"""
     step_result = step_record["result"]
     if not isinstance(step_result, dict):
         return mark_step(step_record, "failed", "日报模块未返回有效结果。")
@@ -221,9 +244,21 @@ def get_daily_report_status(step_record):
         return mark_step(step_record, "failed", f"无法读取日报文件：{error}")
 
     ai_unavailable = "AI增强分析暂不可用" in report_content
+    audit = _serialize_quote_provenance_audit(step_result.get("quote_provenance"))
     step_record["details"] = {"ai_unavailable": ai_unavailable}
-    status = "partial" if ai_unavailable else "success"
-    message = "AI增强分析不可用，已保留规则分析。" if ai_unavailable else ""
+    if audit is not None:
+        step_record["details"]["quote_provenance"] = audit
+
+    reasons = []
+    if ai_unavailable:
+        reasons.append("AI增强分析不可用，已保留规则分析。")
+    if audit and (
+        audit.get("未记录数", 0) > 0
+        or audit.get("落后记录数", 0) > 0
+    ):
+        reasons.append("行情来源审计不完整，日报已明确保留数据边界。")
+    status = "partial" if reasons else "success"
+    message = " ".join(reasons)
     return mark_step(step_record, status, message, str(report_file))
 
 

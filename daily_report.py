@@ -1693,8 +1693,12 @@ def create_evidence_report_content(evidence, ai_summary):
     ])
 
 
-def run_daily_report():
-    """执行关注股票日报生成流程，并返回报告路径。"""
+def run_daily_report(return_details=False):
+    """执行关注股票日报生成流程。
+
+    默认只返回报告路径，以兼容现有命令和调用方；流水线可显式索取已用于
+    生成日报的审计摘要，避免再从 Markdown 文本反向解析数据质量。
+    """
     project_directory = Path(__file__).parent
     watchlist_file = project_directory / "watchlist.json"
     output_directory = project_directory / "output"
@@ -1708,6 +1712,11 @@ def run_daily_report():
 
     print("每日关注股票日报生成成功:")
     print(report_file)
+    if return_details:
+        return {
+            "output_file": report_file,
+            "quote_provenance": evidence.get("行情来源审计", {}),
+        }
     return report_file
 
 
