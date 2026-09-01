@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 from ai_client import UNAVAILABLE_MESSAGE, call_ai_model
 from ai_prompts import RESEARCH_SYSTEM_PROMPT
 from analysis_evidence import (
@@ -14,9 +16,66 @@ from analysis_evidence import (
     load_market_context,
     load_watchlist_config,
 )
+from expert_research import (
+    build_expert_research_memo,
+    build_price_research_evidence,
+    render_expert_research_memo,
+)
+from fundamental_data import (
+    build_industry_peer_comparison,
+    build_valuation_observation,
+    load_fundamental_snapshot,
+    summarize_fundamental_evidence,
+)
 
 
 AI_FALLBACK_TEXT = "AI增强分析暂不可用。"
+
+
+def _read_local_csv(csv_file):
+    """读取本地 CSV；分析层只读，不因编码问题改变原始数据。"""
+    try:
+        return pd.read_csv(csv_file, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        return pd.read_csv(csv_file)
+
+
+def enrich_stock_evidence_with_research(stock_evidence, project_directory=None):
+    """附加本地价格研究事实和研究备忘录，缺失时保留明确的数据缺口。"""
+    project_directory = Path(project_directory or Path(__file__).parent)
+    enriched = dict(stock_evidence)
+    stock_name = str(enriched.get("股票名称", "")).strip()
+    history_file = project_directory / "data" / f"{stock_name}历史.csv"
+    benchmark_file = project_directory / "data" / "market" / "沪深300_sh000300.csv"
+    try:
+        history = _read_local_csv(history_file) if history_file.is_file() else None
+        benchmark = _read_local_csv(benchmark_file) if benchmark_file.is_file() else None
+        price_evidence = build_price_research_evidence(history, benchmark)
+    except (OSError, pd.errors.ParserError, ValueError) as error:
+        price_evidence = {"数据状态": f"数据不足：本地日线读取失败：{error}。"}
+    try:
+        fundamental_snapshot = load_fundamental_snapshot(
+            enriched.get("股票代码", ""), project_directory / "data" / "fundamentals"
+        )
+        fundamental_evidence = summarize_fundamental_evidence(fundamental_snapshot)
+        peer_comparison = build_industry_peer_comparison(
+            fundamental_snapshot, project_directory / "data" / "fundamentals"
+        )
+    except ValueError as error:
+        fundamental_evidence = {"数据状态": f"数据不足：基本面快照股票代码无效：{error}。", "事实": []}
+        peer_comparison = {"数据状态": "数据不足：基本面快照股票代码无效，不能进行同业比较。"}
+    fundamental_evidence["价格日期"] = price_evidence.get("数据截至日期", "数据不足")
+    valuation_evidence = build_valuation_observation(
+        fundamental_evidence, price_evidence.get("最新收盘")
+    )
+    enriched["价格研究证据"] = price_evidence
+    enriched["基本面研究证据"] = fundamental_evidence
+    enriched["估值观察"] = valuation_evidence
+    enriched["行业同业比较"] = peer_comparison
+    enriched["专家研究备忘录"] = build_expert_research_memo(
+        enriched, price_evidence, fundamental_evidence, valuation_evidence, peer_comparison
+    )
+    return enriched
 
 
 def find_latest_snapshot_file(output_directory, file_prefix):
@@ -309,6 +368,7 @@ def build_ai_prompt(fact_snapshot):
     if "当前量化证据" in fact_snapshot:
         return f"""请只解释以下单股票证据包，不得增加任何事实或预测模型概率。
 严格使用“市场与趋势背景、近期变化解读、主要风险、条件式观察重点、综合研究结论”五个二级标题；
+若证据包包含“专家研究备忘录”，必须把它的支持证据与相反证据都纳入解释，并明确基本面与行业证据是否缺失；
 条件只能使用“若……则观察……”表述，不能给出买卖指令或价格预测。
 
 证据包如下：
@@ -458,6 +518,35 @@ def _evidence_list_section(title, items):
     return "\n".join([f"## {title}", "", *(f"- {item}" for item in items)])
 
 
+def _fundamental_evidence_section(fundamental_evidence, valuation_evidence=None, peer_comparison=None):
+    status = fundamental_evidence.get("数据状态", "数据不足")
+    lines = ["## 基本面事实快照", "", f"- 数据状态：{status}"]
+    lines.extend(f"- {item}" for item in fundamental_evidence.get("事实", []))
+    if fundamental_evidence.get("来源"):
+        lines.append(f"- 来源：{fundamental_evidence['来源']}")
+    if fundamental_evidence.get("官方核验页"):
+        lines.append(f"- 官方核验：[巨潮资讯定期报告与财务数据]({fundamental_evidence['官方核验页']})")
+    valuation_evidence = valuation_evidence or {}
+    if valuation_evidence.get("数据状态") == "可用":
+        lines.append(f"- 估值观察：PB {valuation_evidence.get('市净率(PB)', '数据不足')}；静态PE {valuation_evidence.get('静态市盈率(PE)', '不适用/数据不足')}。")
+        lines.append(f"- 估值口径：{valuation_evidence.get('说明')}")
+    peer_comparison = peer_comparison or {}
+    lines.extend(["", "### 行业同业比较", "", f"- 数据状态：{peer_comparison.get('数据状态', '数据不足')}"])
+    if peer_comparison.get("数据状态") == "可用":
+        lines.append(
+            f"- 可比范围：{peer_comparison.get('所属行业')}；报告期 {peer_comparison.get('报告期')}；"
+            f"本地可比公司 {peer_comparison.get('可比公司数量')} 家。"
+        )
+        for label, item in peer_comparison.get("指标比较", {}).items():
+            if item.get("数据状态") == "可用":
+                lines.append(
+                    f"- {label}：本公司 {item['本公司']}；同业中位数 {item['同业中位数']}；"
+                    f"排名 {item['同业排名']}/{item['有效可比公司数']}。"
+                )
+        lines.append(f"- 说明：{peer_comparison.get('说明')}")
+    return "\n".join(lines)
+
+
 def create_evidence_markdown_content(stock_evidence, market_context, ai_summary):
     """组合 v4.6 单股正式报告；所有数值来自证据层的本地文件。"""
     current = stock_evidence["当前量化证据"]
@@ -483,9 +572,17 @@ def create_evidence_markdown_content(stock_evidence, market_context, ai_summary)
         _evidence_list_section("偏强证据", stock_evidence["偏强证据"]),
         _evidence_list_section("谨慎证据", stock_evidence["谨慎证据"]),
         _evidence_list_section("条件式观察重点", stock_evidence["观察重点"]),
+        _fundamental_evidence_section(
+            stock_evidence.get("基本面研究证据", {}), stock_evidence.get("估值观察", {}),
+            stock_evidence.get("行业同业比较", {}),
+        ),
+        render_expert_research_memo(
+            stock_evidence.get("专家研究备忘录", build_expert_research_memo(stock_evidence, {}))
+        ),
         f"## AI增强分析\n\n{ai_summary}",
         "## 风险提示\n\n"
-        "本报告不构成投资建议；未包含新闻、公告、财报或实时盘口；"
+        "本报告不构成投资建议；未包含新闻或实时盘口；"
+        "基本面内容仅限已保存的指标快照，仍须以官方定期报告复核；"
         "不展示未经验证的预测概率。",
         "",
     ]
@@ -535,6 +632,7 @@ def run_stock_analysis(stock_query=None, output_directory=None):
     stock_evidence = build_stock_evidence(
         stock_record, quant_context, daily_context, watch_context, watchlist_context, market_context
     )
+    stock_evidence = enrich_stock_evidence_with_research(stock_evidence, project_directory)
     ai_summary = build_ai_summary({**stock_evidence, "市场环境": market_context})
     markdown_content = create_evidence_markdown_content(stock_evidence, market_context, ai_summary)
     report_file = save_markdown(

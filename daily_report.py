@@ -483,14 +483,14 @@ def build_evidence_ai_prompt(evidence):
     }
     return f"""只能解释以下结构化事实，不能添加新闻、公告、资金流、财报或预测概率。
 这是一份已经包含市场状态、重点股票和候选提醒的短日报。你的职责是只补充一个最值得留意的矛盾或风险，以及一个下一交易日观察点；不要复述股票清单、市场涨跌、评分或已有结论。
-读者不具备技术分析背景：不要直接使用 MACD、RSI、MA5、MA20、均线、金叉、死叉等术语；改用“短期走势”“短期动能”“短期价格强弱”等白话。
+读者不具备技术分析背景：不要直接使用 MACD、RSI、MA5、MA20、均线、金叉、死叉、动能、强弱等术语。请直接说明“近 5 日平均价是否高于近 20 日”“近期价格是否出现持续走强迹象”“近期涨幅是否过大而可能回落”。
 严格使用以下两个三级标题，不要输出表格：
 ### 需要特别留意
 ### 明日验证点
-每个标题下最多两条，总长度不超过 220 个中文字符。每条都必须包含明确对象和至少一项所给事实，并说明该事实与其他信号是否一致；不能只写“出现变化”“等待验证”“持续关注”“谨慎观察”等没有信息量的结论。观察点必须写明具体要核对的信号，例如“短期走势是否仍强于中期”或“短期动能是否由弱转强”。不得给出买卖指令、价格预测或收益保证；数据不足时明确说明。
+每个标题下最多两条，总长度不超过 220 个中文字符。每条都必须包含明确对象和至少一项所给事实，并说明该事实与其他信号是否一致；不能只写“出现变化”“等待验证”“持续关注”“谨慎观察”等没有信息量的结论。观察点必须写明具体要核对的信号，例如“近 5 日平均价能否继续高于近 20 日”或“近期价格能否出现持续走强迹象”。不得给出买卖指令、价格预测或收益保证；数据不足时明确说明。
 不得给出买卖指令、价格预测、收益保证；数据不足时明确说明。
 不得写入事实中未提供的个股收盘价、均线点位、涨跌幅、新闻或原因；
-例如事实只有均线关系时，只能写“短期走势强于/弱于中期”，不能补写价格比较。
+例如事实只有均线关系时，只能写“近 5 日平均价高于/低于近 20 日”，不能补写具体价格或原因。
 
 证据如下：
 {json.dumps(facts, ensure_ascii=False, indent=2)}
@@ -540,26 +540,43 @@ def _is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _format_report_date(value):
+    """将快照序列化后可能携带的时间部分收敛为报告日期。"""
+    text = str(value or "未提供").strip()
+    return text[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", text) else text
+
+
+def _format_fundamental_metric(label, value):
+    """将已披露财务指标写成读者可直接核对的显示口径。"""
+    if not _is_number(value):
+        return None
+    if label in {"营业总收入同比增长", "归母净利润同比增长", "净资产收益率(加权)", "资产负债率"}:
+        return f"{label} {value:.2f}%"
+    if label == "每股经营现金流":
+        return f"{label} {value:.2f} 元/股"
+    return f"{label} {value:.2f}"
+
+
 def describe_score(score):
-    """把内部综合评分转成可直接理解的状态，不把它当作预测。"""
+    """把内部评分说成观察信号，不将评分伪装为预测。"""
     if not _is_number(score):
-        return "系统资料不足，暂不作技术面判断"
+        return "系统资料不足，暂不作判断"
     if score >= 70:
-        label = "技术条件相对较强"
+        label = "系统观察信号相对较好"
     elif score >= 50:
-        label = "强弱信号交织"
+        label = "系统信号相互矛盾"
     else:
-        label = "技术条件偏弱"
-    return f"{label}（系统综合评分 {score}/100，仅用于同一套规则下的相对比较）"
+        label = "系统观察信号偏弱"
+    return f"{label}（观察评分 {score}/100，仅供同一套规则下比较）"
 
 
 def describe_trend(trend):
-    """解释短期与中期均价的关系，正文不要求读者理解均线术语。"""
+    """直接交代近五日和近二十日均价的关系，避免术语标签。"""
     value = str(trend)
     if "多头" in value or "高于" in value:
-        return "短期走势暂时强于中期走势"
+        return "近 5 日平均价高于近 20 日，近期价格相对走稳"
     if "偏弱" in value or "低于" in value:
-        return "短期走势仍弱于中期走势"
+        return "近 5 日平均价低于近 20 日，近期价格尚未走强"
     if "数据不足" in value:
         return "走势资料不足"
     return value
@@ -595,36 +612,36 @@ def describe_score_change(change):
 def describe_trend_change(change):
     value = str(change)
     if "由MA5 低于 MA20变为MA5 高于 MA20" in value:
-        return "短期走势从弱于中期转为强于中期"
+        return "近 5 日平均价重新高于近 20 日，近期价格出现走稳迹象"
     if "由MA5 高于 MA20变为MA5 低于 MA20" in value:
-        return "短期走势从强于中期转为弱于中期"
+        return "近 5 日平均价跌回近 20 日下方，近期价格转弱"
     if "高于 MA20" in value:
-        return "短期走势仍强于中期走势"
+        return "近 5 日平均价仍高于近 20 日"
     if "低于 MA20" in value:
-        return "短期走势仍弱于中期走势"
+        return "近 5 日平均价仍低于近 20 日"
     return "走势变化资料不足" if "数据不足" in value else value
 
 
 def describe_momentum_change(change):
-    """把 MACD 状态变化译为短期涨跌动能的日常表述。"""
+    """将内部动量状态翻译成近期价格是否呈现走强或转弱迹象。"""
     value = str(change)
-    if "由负值转为正值" in value:
-        return "短期动能由偏弱转为偏强"
-    if "由正值转为负值" in value:
-        return "短期动能由偏强转为偏弱"
+    if "转为正值" in value:
+        return "近期价格开始出现走强迹象，仍需后续确认"
+    if "转为负值" in value or "转为零轴" in value:
+        return "此前的走强迹象消失"
     if "正值扩大" in value:
-        return "短期向上动能有所增强"
+        return "近期走强迹象增强"
     if "正值收窄" in value:
-        return "短期向上动能仍在，但力度减弱"
+        return "近期仍有走强迹象，但力度减弱"
     if "负值扩大" in value:
-        return "短期向下动能有所加重"
+        return "近期下行压力加大"
     if "负值收窄" in value:
-        return "短期向下动能仍在，但正在减弱"
+        return "近期下行压力略有减轻"
     if "维持正值" in value:
-        return "短期向上动能仍在"
+        return "近期仍有走强迹象"
     if "维持负值" in value:
-        return "短期向下动能尚未扭转"
-    return "动能变化资料不足" if "数据不足" in value else value
+        return "近期仍未出现持续走强迹象"
+    return "近期价格变化资料不足" if "数据不足" in value else value
 
 
 def describe_strength_change(change):
@@ -641,25 +658,35 @@ def translate_evidence_item(item):
     """将规则层的技术术语改写为报告中的白话解释。"""
     text = str(item)
     replacements = (
-        ("MA5 高于 MA20", "短期走势强于中期走势（近 5 日平均价高于近 20 日平均价）"),
-        ("MA5 低于或等于 MA20", "短期走势未强于中期走势"),
-        ("MACD 为正", "短期向上动能占优"),
-        ("MACD 为负或为零", "短期动能偏弱"),
-        ("MACD 继续为正", "短期向上动能保持"),
-        ("MACD 继续为负", "短期向下动能没有改善"),
-        ("MA5 持续高于 MA20", "短期走势持续强于中期走势"),
-        ("MA5 是否继续高于 MA20", "短期走势是否持续强于中期走势"),
-        ("MA5 回到 MA20 上方", "短期走势重新强于中期走势"),
+        ("MA5 高于 MA20", "近 5 日平均价高于近 20 日平均价"),
+        ("MA5 低于或等于 MA20", "近 5 日平均价未高于近 20 日平均价"),
+        ("MACD 为正", "近期价格有走强迹象"),
+        ("MACD 为负或为零", "近期价格尚未显示持续走强迹象"),
+        ("MACD 继续为正", "近期价格仍有走强迹象"),
+        ("MACD 继续为负", "近期价格尚未改善"),
+        ("MA5 持续高于 MA20", "近 5 日平均价持续高于近 20 日平均价"),
+        ("MA5 是否继续高于 MA20", "近 5 日平均价是否持续高于近 20 日平均价"),
+        ("MA5 回到 MA20 上方", "近 5 日平均价重新高于近 20 日平均价"),
     )
     for old, new in replacements:
         text = text.replace(old, new)
-    text = text.replace("均线关系", "短期与中期走势的关系")
+    text = text.replace("均线关系", "近 5 日与近 20 日均价的关系")
     text = re.sub(
         r"RSI 为 ([0-9.]+)，位于(.+?)区间",
         r"短期价格强弱为 \1/100，处于\2区间",
         text,
     )
-    text = text.replace("Score", "系统评分")
+    text = re.sub(
+        r"短期价格强弱为 ([0-9.]+)/100，处于偏高区间",
+        r"近期上涨较快（\1/100），需留意波动加大",
+        text,
+    )
+    text = re.sub(
+        r"短期价格强弱为 ([0-9.]+)/100，处于偏低区间",
+        r"近期下跌较多（\1/100），需留意波动加大",
+        text,
+    )
+    text = text.replace("Score", "观察评分")
     return text
 
 
@@ -701,7 +728,7 @@ def describe_market_condition(market_context):
     if not available_indices:
         return "市场资料不足，今天不宜仅凭个股信号作判断。", "等待资料补全"
     if below_count == len(available_indices):
-        return "整体市场偏弱，主要指数都低于近一个月平均价格。", "防守观察，不把短期强势直接当成新增机会"
+        return "整体市场偏弱，主要指数都低于近一个月平均价格。", "防守观察，不把近期价格走强直接当成新增机会"
     if below_count == 0:
         return "整体市场相对稳定，主要指数都高于近一个月平均价格。", "可继续跟踪，但仍以个股条件为准"
     return "市场强弱分化，不能只看单一指数下结论。", "聚焦个股变化，避免扩大判断"
@@ -856,18 +883,18 @@ def describe_action_status(stock):
     if (
         _is_number(current.get("Score"))
         and current["Score"] >= 65
-        and "强于" in describe_trend(current.get("趋势"))
+        and "高于" in describe_trend(current.get("趋势"))
     ):
         return "可继续研究跟踪"
     return "常规观察"
 
 
 def describe_current_momentum(stock):
-    """根据已有动能数值给出事实性、非预测式的表述。"""
+    """避免展示内部指标名，只说明近期价格是否已有持续走强迹象。"""
     value = stock.get("当前量化证据", {}).get("MACD")
     if not _is_number(value):
-        return "短期动能资料不足"
-    return "短期动能偏强" if value > 0 else "短期动能偏弱"
+        return "近期价格变化资料不足"
+    return "近期价格有走强迹象" if value > 0 else "近期价格尚未显示持续走强迹象"
 
 
 def describe_current_signal(stock):
@@ -876,7 +903,7 @@ def describe_current_signal(stock):
         return "当前量化资料不足"
     current = stock.get("当前量化证据", {})
     score = current.get("Score")
-    score_text = f"系统评分 {score}/100" if _is_number(score) else "系统评分资料不足"
+    score_text = f"观察评分 {score}/100" if _is_number(score) else "观察评分资料不足"
     return "；".join([
         score_text,
         describe_trend(current.get("趋势")),
@@ -890,7 +917,7 @@ def describe_daily_update(stock):
     pieces = []
     score_change = changes.get("Score变化")
     if _is_number(score_change) and score_change:
-        pieces.append(f"系统评分 {'+' if score_change > 0 else ''}{score_change}")
+        pieces.append(f"观察评分 {'+' if score_change > 0 else ''}{score_change}")
     trend_change = str(changes.get("MA5/MA20关系变化", ""))
     if "由" in trend_change or "转为" in trend_change:
         pieces.append(describe_trend_change(trend_change))
@@ -901,7 +928,7 @@ def describe_daily_update(stock):
         return "；".join(pieces)
     if not _is_number(score_change):
         return "缺少与上一交易日的完整对比资料"
-    return "未出现趋势或动能的状态切换"
+    return "未出现需要单独说明的价格状态变化"
 
 
 def describe_follow_up(stock):
@@ -913,12 +940,12 @@ def describe_follow_up(stock):
     ma5, ma20 = current.get("MA5"), current.get("MA20")
     if _is_number(ma5) and _is_number(ma20):
         checks.append(
-            "短期走势是否继续强于中期"
-            if ma5 > ma20 else "短期走势能否改善至强于中期"
+            "近 5 日平均价能否继续高于近 20 日"
+            if ma5 > ma20 else "近 5 日平均价能否重新高于近 20 日"
         )
     macd = current.get("MACD")
     if _is_number(macd):
-        checks.append("短期动能能否维持偏强" if macd > 0 else "短期动能是否改善")
+        checks.append("近期价格能否保持走强" if macd > 0 else "近期价格能否出现持续走强迹象")
     rsi = current.get("RSI")
     if _is_number(rsi) and (rsi >= 70 or rsi <= 30):
         checks.append("短期价格强弱是否仍处于极端区间")
@@ -933,11 +960,11 @@ def describe_watchpoint(stock):
     points = []
     score = current.get("Score")
     if _is_number(score) and score < 50:
-        points.append(f"系统评分 {score}/100，技术条件偏弱")
+        points.append(f"观察评分 {score}/100，系统信号偏弱")
     if _is_number(current.get("MA5")) and _is_number(current.get("MA20")) and current["MA5"] <= current["MA20"]:
-        points.append("短期走势未强于中期")
+        points.append("近 5 日平均价低于近 20 日")
     if _is_number(current.get("MACD")) and current["MACD"] <= 0:
-        points.append("短期动能偏弱")
+        points.append("近期价格尚未显示持续走强迹象")
     rsi = current.get("RSI")
     if _is_number(rsi) and rsi >= 70:
         points.append(f"短期价格强弱 {rsi}/100，处于偏高区间")
@@ -953,15 +980,15 @@ def describe_compact_trend_momentum(stock):
     current = stock.get("当前量化证据", {})
     trend = current.get("趋势")
     trend_text = (
-        "短期强于中期" if "强于" in describe_trend(trend)
-        else "短期弱于中期" if "弱于" in describe_trend(trend)
-        else "走势资料不足"
+        "近 5 日均价高于近 20 日" if "高于" in describe_trend(trend)
+        else "近 5 日均价低于近 20 日" if "低于" in describe_trend(trend)
+        else "价格资料不足"
     )
     momentum = current.get("MACD")
     momentum_text = (
-        "动能偏强" if _is_number(momentum) and momentum > 0
-        else "动能偏弱" if _is_number(momentum)
-        else "动能资料不足"
+        "有走强迹象" if _is_number(momentum) and momentum > 0
+        else "未见持续走强" if _is_number(momentum)
+        else "价格变化资料不足"
     )
     return f"{trend_text}；{momentum_text}"
 
@@ -974,20 +1001,20 @@ def describe_compact_daily_update(stock):
     if _is_number(score_change) and score_change:
         pieces.append(f"评分{'+' if score_change > 0 else ''}{score_change}")
 
-    trend_change = describe_trend_change(changes.get("MA5/MA20关系变化"))
-    if "从弱于中期转为强于中期" in trend_change:
-        pieces.append("短期转强")
-    elif "从强于中期转为弱于中期" in trend_change:
-        pieces.append("短期转弱")
+    trend_change = str(changes.get("MA5/MA20关系变化", ""))
+    if "由MA5 低于 MA20变为MA5 高于 MA20" in trend_change:
+        pieces.append("近期出现走稳迹象")
+    elif "由MA5 高于 MA20变为MA5 低于 MA20" in trend_change:
+        pieces.append("近期价格转弱")
 
     momentum_change = str(changes.get("MACD状态变化", ""))
     momentum_labels = (
-        ("由负值转为正值", "动能转强"),
-        ("由正值转为负值", "动能转弱"),
-        ("正值扩大", "向上动能增强"),
-        ("正值收窄", "向上动能减弱"),
-        ("负值扩大", "向下动能增强"),
-        ("负值收窄", "向下动能减弱"),
+        ("由负值转为正值", "出现走强迹象"),
+        ("由正值转为负值", "近期转弱"),
+        ("正值扩大", "走强迹象增强"),
+        ("正值收窄", "走强力度减弱"),
+        ("负值扩大", "下行压力加大"),
+        ("负值收窄", "下行压力减轻"),
     )
     for marker, label in momentum_labels:
         if marker in momentum_change:
@@ -1007,9 +1034,9 @@ def describe_compact_watchpoint(stock):
     if _is_number(score) and score < 50:
         return "评分低于 50"
     if _is_number(current.get("MA5")) and _is_number(current.get("MA20")) and current["MA5"] <= current["MA20"]:
-        return "短期走势偏弱"
+        return "近期价格尚未走强"
     if _is_number(current.get("MACD")) and current["MACD"] <= 0:
-        return "短期动能偏弱"
+        return "未见持续走强迹象"
     rsi = current.get("RSI")
     if _is_number(rsi) and rsi >= 70:
         return "短期价格偏高"
@@ -1025,19 +1052,19 @@ def describe_focus_reason(stock):
     reasons = []
     score_change = changes.get("Score变化")
     if _is_number(score_change) and abs(score_change) >= 10:
-        reasons.append(f"系统评分单日{'上调' if score_change > 0 else '下调'} {abs(score_change)} 分")
-    trend_change = describe_trend_change(changes.get("MA5/MA20关系变化"))
-    if "转为" in trend_change:
-        reasons.append(trend_change)
-    momentum_change = describe_momentum_change(changes.get("MACD状态变化"))
-    if "转为" in momentum_change:
-        reasons.append(momentum_change)
+        reasons.append(f"观察评分单日{'上调' if score_change > 0 else '下调'} {abs(score_change)} 分")
+    raw_trend_change = str(changes.get("MA5/MA20关系变化", ""))
+    if "由" in raw_trend_change or "转为" in raw_trend_change:
+        reasons.append(describe_trend_change(raw_trend_change))
+    raw_momentum_change = str(changes.get("MACD状态变化", ""))
+    if "由" in raw_momentum_change or "转为" in raw_momentum_change:
+        reasons.append(describe_momentum_change(raw_momentum_change))
 
     if _is_number(current.get("MA5")) and _is_number(current.get("MA20")) and _is_number(current.get("MACD")):
         if current["MA5"] > current["MA20"] and current["MACD"] <= 0:
-            reasons.append("短期走势偏强，但短期动能仍偏弱，信号并不一致")
+            reasons.append("近 5 日均价仍高于近 20 日，但近期价格未出现持续走强迹象，两个信号不一致")
         elif current["MA5"] <= current["MA20"] and current["MACD"] > 0:
-            reasons.append("短期动能偏强，但短期走势仍未强于中期，信号并不一致")
+            reasons.append("近期价格出现走强迹象，但近 5 日均价仍低于近 20 日，两个信号不一致")
     return "；".join(reasons) if reasons else "当日变化达到重点复核阈值"
 
 
@@ -1053,9 +1080,9 @@ def create_rule_cross_signal_summary(evidence, ai_issue=None):
         if not all(_is_number(value) for value in (ma5, ma20, macd)):
             continue
         if ma5 > ma20 and macd <= 0:
-            conflicts.append(f"{stock['股票名称']}短期走势强于中期，但短期动能偏弱")
+            conflicts.append(f"{stock['股票名称']}近 5 日均价高于近 20 日，但近期价格尚未显示持续走强迹象")
         elif ma5 <= ma20 and macd > 0:
-            conflicts.append(f"{stock['股票名称']}短期动能偏强，但短期走势未强于中期")
+            conflicts.append(f"{stock['股票名称']}近期价格出现走强迹象，但近 5 日均价仍低于近 20 日")
 
     focus_stocks = select_daily_focus_stocks(stocks)
     lines = ["### 需要特别留意", "", f"- 市场层面：{market_summary}"]
@@ -1067,7 +1094,7 @@ def create_rule_cross_signal_summary(evidence, ai_issue=None):
             for stock in focus_stocks[:2]
         ) + "。")
     else:
-        lines.append("- 个股层面：未出现评分大幅调整、趋势切换或动能切换。")
+        lines.append("- 个股层面：未出现评分大幅调整或需要单独说明的价格状态变化。")
 
     lines.extend(["", "### 明日验证点", ""])
     if focus_stocks:
@@ -1076,7 +1103,7 @@ def create_rule_cross_signal_summary(evidence, ai_issue=None):
             for stock in focus_stocks[:2]
         ) + "。")
     else:
-        lines.append("- 个股：继续核对短期走势与短期动能是否维持当前方向。")
+        lines.append("- 个股：继续核对近 5 日均价与近 20 日均价的关系，以及近期价格是否出现持续走强迹象。")
     available_indices = [
         item for item in market_context.get("指数", {}).values()
         if item.get("数据状态") == "可用"
@@ -1146,7 +1173,7 @@ def create_watchlist_overview_section(stocks):
         "",
         "- 此表用于横向比较；详细原因与后续核对项见上方“今日重点”。“—”表示没有需要单独报告的信号，不代表没有价格波动。",
         "",
-        "| 股票 | 收盘价 | 评分 | 趋势 / 动能 | 今日信号 | 风险提示 |",
+        "| 股票 | 收盘价 | 观察评分 | 近期价格状态 | 今日变化 | 需要留意 |",
         "| --- | ---: | ---: | --- | --- | --- |",
     ]
     ordered = sorted(stocks, key=lambda stock: (-_priority(stock), stock.get("股票名称", "")))
@@ -1163,7 +1190,7 @@ def create_watchlist_overview_section(stocks):
     if not ordered:
         lines.append("| 暂无启用的关注股票 | 数据不足 | 数据不足 | 数据不足 | 数据不足 | 数据不足 |")
     lines.append("")
-    lines.append("- 收盘价来自当日量化快照；评分为系统综合评分（0–100），只用于同一套规则下的相对比较。")
+    lines.append("- 收盘价来自当日量化快照；观察评分（0–100）只用于本系统内的相对排序，不代表涨跌预测。")
     return "\n".join(lines)
 
 
@@ -1172,7 +1199,7 @@ def create_daily_focus_section(stocks):
     focus_stocks = select_daily_focus_stocks(stocks)
     lines = ["## 今日重点", ""]
     if not focus_stocks:
-        return "\n".join(lines + ["- 未发现评分大幅调整、短期走势切换或动能切换；按既有观察计划跟踪即可。"])
+        return "\n".join(lines + ["- 未发现评分大幅调整或需要单独说明的价格状态变化；按既有观察计划跟踪即可。"])
 
     for stock in focus_stocks:
         current = stock["当前量化证据"]
@@ -1181,14 +1208,73 @@ def create_daily_focus_section(stocks):
         lines.extend([
             f"### {stock['股票名称']}（{stock['股票代码']}）",
             "",
-            f"- 今天发生：{describe_daily_update(stock)}。",
-            f"- 当前状态：{describe_current_signal(stock)}。",
-            f"- 纳入重点的原因：{describe_focus_reason(stock)}。",
-            "- 后续观察：" + describe_follow_up(stock) + "。",
+            f"- 今天出现的变化：{describe_daily_update(stock)}。",
+            f"- 现在怎么看：{describe_current_signal(stock)}。",
+            f"- 为什么需要留意：{describe_focus_reason(stock)}。",
+            "- 下一交易日看什么：" + describe_follow_up(stock) + "。",
             create_official_announcement_section(stock),
         ])
         if cautions and not str(cautions[0]).startswith("未发现"):
             lines.append("- 需要留意：" + translate_evidence_item(cautions[0]))
+        lines.append("")
+    return "\n".join(lines)
+
+
+def create_fundamental_review_section(stocks):
+    """将重点股的已保存基本面和同业位置写入日报正文，不用缺失数据补结论。"""
+    focus_stocks = select_daily_focus_stocks(stocks)
+    lines = ["## 重点股基本面与同业核对", ""]
+    if not focus_stocks:
+        return "\n".join(lines + ["- 今日没有技术层面的重点股，因此不展开基本面核对。"])
+    lines.append("- 本节只引用已保存的报告期快照；近期价格变化不等于公司基本面变化。")
+    for stock in focus_stocks:
+        fundamental = stock.get("基本面研究证据", {})
+        peer = stock.get("行业同业比较", {})
+        valuation = stock.get("估值观察", {})
+        lines.extend([f"### {stock['股票名称']}（{stock['股票代码']}）", ""])
+        if fundamental.get("数据状态") != "可用":
+            lines.append(f"- 基本面：{fundamental.get('数据状态', '数据不足')}，今天不对公司质量、估值或行业位置作判断。")
+            lines.append("")
+            continue
+        facts = fundamental.get("事实", [])
+        report_period = _format_report_date(fundamental.get("报告期"))
+        notice_date = _format_report_date(fundamental.get("公告日期"))
+        report_fact = f"最新报告期：{report_period}；公告日期：{notice_date}。"
+        metrics = fundamental.get("指标", {})
+        financial_facts = [
+            _format_fundamental_metric(label, metrics.get(label))
+            for label in ("营业总收入同比增长", "归母净利润同比增长", "净资产收益率(加权)", "资产负债率", "每股经营现金流")
+        ]
+        financial_facts = [item for item in financial_facts if item][:3]
+        profile_facts = [item for item in facts if item.startswith(("所属行业：", "主营业务："))][:2]
+        lines.append(f"- 报告口径：{report_fact}")
+        if financial_facts:
+            lines.append("- 财务事实：" + "；".join(financial_facts))
+        if profile_facts:
+            lines.append("- 公司与行业：" + "；".join(profile_facts))
+        if valuation.get("数据状态") == "可用":
+            pb = valuation.get("市净率(PB)")
+            pe = valuation.get("静态市盈率(PE)")
+            pb_text = f"{pb:.2f}" if _is_number(pb) else "数据不足"
+            pe_text = (
+                f"{pe:.2f}"
+                if _is_number(pe)
+                else "不适用（最新为非年报，静态PE仅在年报口径下展示）"
+            )
+            lines.append(f"- 估值观察：PB {pb_text}；静态PE {pe_text}。")
+        if peer.get("数据状态") == "可用":
+            metrics = []
+            for label in ("归母净利润同比增长", "净资产收益率(加权)", "资产负债率"):
+                item = peer.get("指标比较", {}).get(label, {})
+                if item.get("数据状态") == "可用":
+                    metrics.append(f"{label}排名 {item['同业排名']}/{item['有效可比公司数']}")
+            lines.append(
+                f"- 同业位置：{peer.get('所属行业')}，同报告期本地可比 {peer.get('可比公司数量')} 家；"
+                + ("；".join(metrics) if metrics else "有效同业指标不足。")
+            )
+        else:
+            lines.append(f"- 同业位置：{peer.get('数据状态', '数据不足')}；不据此比较公司优劣。")
+        lines.append("- 核对边界：上述数字须结合巨潮资讯定期报告复核，不构成盈利预测或投资建议。")
         lines.append("")
     return "\n".join(lines)
 
@@ -1249,7 +1335,7 @@ def create_conservative_candidates_section(candidate_snapshot):
 def create_research_recommendations_section(recommendations):
     """展示每日固定的三只 20 日研究优先标的，不将其表述为买卖建议。"""
     lines = ["## 20 日研究优先标的 TOP3", ""]
-    lines.append("- 按趋势、动能、短期价格强弱、近 20 日涨幅、波动与成交活跃度综合排序，用于约 20 个交易日的研究跟踪，不构成买入建议。")
+    lines.append("- 按近期价格表现、近 20 日涨幅、波动与成交活跃度综合排序，用于约 20 个交易日的研究跟踪，不构成买入建议。")
     if not recommendations:
         return "\n".join(lines + ["- 当前量化快照中没有足够的有效股票，暂无法列出三只标的。"])
 
@@ -1263,7 +1349,8 @@ def create_research_recommendations_section(recommendations):
             f"### {index}. {stock.get('股票名称', '未知股票')}（{stock.get('股票代码', '')}）",
             "",
             f"- 研究优先评分：{stock.get('20日研究优先评分', '数据不足')}/100（仅用于三只标的间排序）。",
-            f"- 当前依据：{describe_score(score)}；{describe_trend(trend)}；{describe_strength(rsi)}；短期动能 {'偏强' if _is_number(macd) and macd > 0 else '偏弱或尚未改善' if _is_number(macd) else '资料不足'}。",
+            f"- 当前依据：{describe_score(score)}；{describe_trend(trend)}；{describe_strength(rsi)}；"
+            f"{'近期价格有走强迹象' if _is_number(macd) and macd > 0 else '近期价格尚未显示持续走强迹象' if _is_number(macd) else '近期价格变化资料不足'}。",
             f"- 当前状态：{stock.get('推荐状态', '仅作研究跟踪')}。",
             f"- 仍待改善：{'；'.join(gaps) if gaps else '个股条件已通过稳健筛选；仍需结合市场环境。'}",
             "",
@@ -1358,6 +1445,142 @@ def create_evidence_watchlist_section(stocks):
     return "\n".join(lines)
 
 
+def _report_period_label(value):
+    """把报告期转为读者易读的年报、中报或季度报告称呼。"""
+    report_date = _format_report_date(value)
+    if re.fullmatch(r"\d{4}-06-30", report_date):
+        return f"{report_date[:4]} 年中报"
+    if re.fullmatch(r"\d{4}-12-31", report_date):
+        return f"{report_date[:4]} 年报"
+    if re.fullmatch(r"\d{4}-03-31", report_date):
+        return f"{report_date[:4]} 年一季报"
+    if re.fullmatch(r"\d{4}-09-30", report_date):
+        return f"{report_date[:4]} 年三季报"
+    return f"报告期 {report_date}"
+
+
+def _reader_price_state(stock):
+    """只保留读者需要的当前价格状态，不显示评分或内部指标。"""
+    current = stock.get("当前量化证据", {})
+    ma5, ma20 = current.get("MA5"), current.get("MA20")
+    recent_signal = current.get("MACD")
+    if _is_number(ma5) and _is_number(ma20) and ma5 <= ma20:
+        return "近期价格仍偏弱"
+    if _is_number(ma5) and _is_number(ma20) and ma5 > ma20 and _is_number(recent_signal) and recent_signal > 0:
+        return "近期价格相对稳定"
+    if _is_number(recent_signal) and recent_signal > 0:
+        return "近期开始出现走强迹象，仍待确认"
+    return "近期价格资料不足"
+
+
+def _reader_price_change(stock):
+    """只报告实际发生的价格状态切换，避免把评分变化当成分析。"""
+    changes = stock.get("今日变化", {})
+    parts = []
+    trend_change = str(changes.get("MA5/MA20关系变化", ""))
+    if "由MA5 低于 MA20变为MA5 高于 MA20" in trend_change:
+        parts.append("近 5 日平均价重新高于近 20 日")
+    elif "由MA5 高于 MA20变为MA5 低于 MA20" in trend_change:
+        parts.append("近 5 日平均价跌回近 20 日下方")
+    momentum_change = describe_momentum_change(changes.get("MACD状态变化", ""))
+    if momentum_change not in {"近期价格变化资料不足", "MACD 零轴状态未变"} and "资料不足" not in momentum_change:
+        parts.append(momentum_change)
+    return "；".join(parts[:2]) if parts else "今天未出现需要单独说明的价格状态切换"
+
+
+def _reader_financial_summary(stock):
+    """将最新已披露财务事实组织为一条公司层面的可读信息。"""
+    fundamental = stock.get("基本面研究证据", {})
+    if fundamental.get("数据状态") != "可用":
+        return None
+    metrics = fundamental.get("指标", {})
+    revenue = metrics.get("营业总收入同比增长")
+    profit = metrics.get("归母净利润同比增长")
+    roe = metrics.get("净资产收益率(加权)")
+    facts = []
+    if _is_number(revenue):
+        facts.append(f"营收同比{'增长' if revenue >= 0 else '下降'} {abs(revenue):.2f}%")
+    if _is_number(profit):
+        facts.append(f"归母净利润同比{'增长' if profit >= 0 else '下降'} {abs(profit):.2f}%")
+    if _is_number(roe):
+        facts.append(f"净资产收益率（ROE）{roe:.2f}%")
+    if not facts:
+        return None
+    return f"最新{_report_period_label(fundamental.get('报告期'))}：" + "，".join(facts) + "。"
+
+
+def _reader_company_judgment(stock):
+    """只根据已披露财务事实和当前价格状态给出边界清晰的分析结论。"""
+    fundamental = stock.get("基本面研究证据", {})
+    metrics = fundamental.get("指标", {}) if fundamental.get("数据状态") == "可用" else {}
+    revenue = metrics.get("营业总收入同比增长")
+    profit = metrics.get("归母净利润同比增长")
+    price_state = _reader_price_state(stock)
+    price_weak = price_state == "近期价格仍偏弱"
+
+    if _is_number(revenue) and _is_number(profit):
+        if revenue > 0 and profit > 0 and price_weak:
+            return "已披露业绩仍在增长，但价格表现没有同步改善；基本面与价格信号暂不一致。"
+        if revenue > 0 and profit <= 0:
+            return "收入仍在增长，但利润同比下降；需要先确认盈利能力是否能改善。"
+        if revenue <= 0 and profit <= 0 and price_weak:
+            return "收入、利润和近期价格表现均偏弱，暂未看到相互印证的改善。"
+        if revenue <= 0 and profit <= 0:
+            return "收入和利润同比均在下降；即使价格短暂走稳，也不足以说明经营已改善。"
+        if revenue > 0 and profit > 0:
+            return "收入与利润同比仍在增长；价格表现可继续跟踪，但不能仅凭价格变化外推经营趋势。"
+    return "公司基本面资料不足；今天只记录价格变化，不对经营状况作判断。"
+
+
+def create_reader_market_section(market_context):
+    """正文只给出一条市场结论及必要事实，不展示运行面板。"""
+    summary, stance = describe_market_condition(market_context)
+    facts = []
+    for name, item in market_context.get("指数", {}).items():
+        if item.get("数据状态") == "可用":
+            facts.append(f"{name}近 20 日 {item.get('20日涨跌')}%")
+    lines = ["## 今天先看市场", "", f"- {summary}", f"- 今天的处理方式：{stance}。"]
+    if facts:
+        lines.append("- 参考：" + "；".join(facts) + "。")
+    return "\n".join(lines)
+
+
+def create_reader_focus_section(stocks):
+    """正文以公司判断为中心：结论、事实和下一步验证各出现一次。"""
+    focus_stocks = select_daily_focus_stocks(stocks)
+    lines = ["## 今天最值得关注的公司", ""]
+    if not focus_stocks:
+        return "\n".join(lines + ["- 今天没有出现需要单独展开的公司变化。"])
+    lines.append("- 以下判断只使用已保存的日线和最新报告期快照，不加入新闻或未经核实的原因。")
+    for stock in focus_stocks:
+        financial = _reader_financial_summary(stock)
+        lines.extend([f"### {stock['股票名称']}（{stock['股票代码']}）", ""])
+        lines.append(f"- 结论：{_reader_company_judgment(stock)}")
+        if financial:
+            lines.append(f"- 已披露事实：{financial}")
+        else:
+            lines.append("- 已披露事实：基本面快照不足，今天不补充公司经营判断。")
+        lines.append(f"- 价格变化：{_reader_price_change(stock)}。")
+        lines.append(f"- 下一步只看：{describe_follow_up(stock)}。")
+        lines.append("")
+    lines.append("- 财务数据须以巨潮资讯定期报告复核；这里不构成盈利预测或投资建议。")
+    return "\n".join(lines)
+
+
+def create_reader_watchlist_section(stocks):
+    """正文仅保留非重点股的一行式提醒，避免全量信号表打断阅读。"""
+    focus_codes = {stock.get("股票代码") for stock in select_daily_focus_stocks(stocks)}
+    remaining = [stock for stock in stocks if stock.get("股票代码") not in focus_codes and _is_matched(stock)]
+    lines = ["## 其余关注股", ""]
+    if not remaining:
+        return "\n".join(lines + ["- 其余关注股当前资料不足。"])
+    lines.append("- " + "；".join(
+        f"{stock['股票名称']}：{_reader_price_state(stock)}"
+        for stock in sorted(remaining, key=lambda item: (-_priority(item), item["股票名称"]))
+    ) + "。")
+    return "\n".join(lines)
+
+
 def create_evidence_report_content(evidence, ai_summary):
     """组合短日报正文与可按需查看的研究附录。"""
     market_context = evidence.get("市场环境", {})
@@ -1365,32 +1588,35 @@ def create_evidence_report_content(evidence, ai_summary):
     email_sections = [
         "# AStockAI 每日关注股票日报",
         f"日期：{evidence.get('报告日期', '数据不足')}",
+        create_reader_market_section(market_context),
+        create_reader_focus_section(stocks),
+        create_reader_watchlist_section(stocks),
+        "> 仅供量化研究参考，不构成投资建议；日线数据不是实时盘中行情。",
+    ]
+    appendix_sections = [
+        "## 研究附录",
+        "以下是系统运行状态、全量清单与原始信号，用于核对和回顾，不是每日必读。",
         create_daily_brief_section(market_context),
         create_research_control_panel_section(evidence),
         create_action_board_section(stocks),
         create_candidate_alert_section(evidence.get("稳健研究候选")),
         create_research_priority_board_section(evidence.get("优先研究标的", [])),
         create_daily_focus_section(stocks),
+        create_fundamental_review_section(stocks),
         create_watchlist_overview_section(stocks),
         f"## 交叉信号解读\n\n{ai_summary}",
-        "> 仅供量化研究参考，不构成投资建议；日线数据不是实时盘中行情。",
-    ]
-    appendix_sections = [
-        "## 研究附录",
-        "以下内容用于核对和回顾，不是每日必读。",
         create_research_recommendations_section(evidence.get("优先研究标的", [])),
         create_conservative_candidates_section(evidence.get("稳健研究候选")),
         create_evidence_market_section(market_context),
         create_key_changes_section(stocks),
         create_evidence_watchlist_section(stocks),
         "## 名词小抄\n\n"
-        "- **短期走势与中期走势**：分别比较近 5 天和近 20 天的平均价格；短期高于中期，"
-        "只表示近期走势相对更强，不代表未来一定上涨。\n"
-        "- **短期动能**：系统通过 MACD 衡量近期买卖力量的变化；报告已直接写成“向上/向下动能”，"
-        "无需根据数值自行判断。\n"
-        "- **强弱值**：系统通过 RSI（0–100）衡量近期价格强弱；数值偏高或偏低都可能伴随更大波动，"
-        "不是买卖信号。\n"
-        "- **系统综合评分**：把已有技术条件汇总为 0–100 的相对参考，只用于阅读排序，不预测收益。",
+        "- **近 5 日与近 20 日均价**：前者高于后者，只表示近期价格比过去一个月相对稳定，"
+        "不代表未来一定上涨。\n"
+        "- **近期是否有走强迹象**：系统用已有日线价格判断近期价格表现是否改善；"
+        "它只是观察线索，不能单独当作结论。\n"
+        "- **近期价格是否偏高或偏低**：上涨或下跌过快都可能带来更大波动，不是买卖信号。\n"
+        "- **观察评分**：把已有价格条件汇总为 0–100 的相对参考，只用于阅读排序，不预测收益。",
         "## 风险提示\n\n本报告不构成投资建议；官方公告仅展示标题、日期与链接，未解读公告内容；"
         "未包含新闻、资金流、财报全文或实时盘口；不展示未经验证的预测概率。日线数据不是实时盘中行情。",
     ]

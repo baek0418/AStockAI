@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -58,6 +59,27 @@ class PredictionFeatureTests(unittest.TestCase):
             dataset, skipped = build_feature_dataset(data_directory=data_directory, project_directory=root)
             self.assertEqual(dataset["股票名称"].unique().tolist(), ["正式股票"])
             self.assertEqual(skipped, [])
+
+    def test_explicit_research_pool_filter_excludes_non_member_history(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            data_directory = root / "data"
+            data_directory.mkdir()
+            make_history(100).to_csv(data_directory / "研究池内历史.csv", index=False)
+            make_history(100).to_csv(data_directory / "研究池外历史.csv", index=False)
+
+            with patch(
+                "prediction_features.create_stock_code_lookup",
+                return_value={"研究池内": "000001", "研究池外": "000002"},
+            ):
+                dataset, skipped = build_feature_dataset(
+                    data_directory=data_directory,
+                    project_directory=root,
+                    allowed_stock_codes={"000001"},
+                )
+
+            self.assertEqual(dataset["股票名称"].unique().tolist(), ["研究池内"])
+            self.assertEqual(skipped, [{"file": "研究池外历史.csv", "reason": "不在当前启用的研究股票池快照中。"}])
 
     def test_rolling_windows_keep_dates_whole_and_insert_gap(self):
         dates = pd.bdate_range("2024-01-01", periods=120)

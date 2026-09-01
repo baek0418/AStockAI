@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from prediction_features import FEATURE_COLUMNS, LABEL_COLUMN
+from prediction_features import FEATURE_COLUMNS, LABEL_COLUMN, RESEARCH_POOL_EXCLUSION_REASON
 
 
 def serialize_window(window):
@@ -50,8 +50,14 @@ def create_evaluation_data(
         risks.append(evaluation.get("message", "样本外验证未完成。"))
     if any(not window.get("校准", {}).get("calibrated", False) for window in successful_windows):
         risks.append("至少一个滚动窗口未完成时间 sigmoid 校准，概率可比性有限。")
-    if skipped_files:
-        risks.append(f"有 {len(skipped_files)} 个正式历史 CSV 被跳过，结果覆盖范围有限。")
+    research_pool_excluded = [
+        item for item in skipped_files if item.get("reason") == RESEARCH_POOL_EXCLUSION_REASON
+    ]
+    data_problem_skipped = [item for item in skipped_files if item not in research_pool_excluded]
+    if data_problem_skipped:
+        risks.append(f"有 {len(data_problem_skipped)} 个正式历史 CSV 因数据问题被跳过；应核对其是否影响研究池覆盖。")
+    if research_pool_excluded:
+        risks.append(f"有 {len(research_pool_excluded)} 个根目录历史 CSV 被研究股票池规则明确排除。")
     aggregate_metrics = evaluation.get("aggregate_metrics")
     baseline_metrics = evaluation.get("aggregate_baseline_metrics")
     if aggregate_metrics and baseline_metrics:
@@ -78,6 +84,8 @@ def create_evaluation_data(
             "样本数": int(len(dataset)),
             "正样本比例": round(float(dataset[label_column].mean()), 6),
             "跳过文件": skipped_files,
+            "数据问题跳过文件": data_problem_skipped,
+            "研究池外文件": research_pool_excluded,
             **(data_scope_extra or {}),
         },
         "滚动样本外验证": [serialize_window(window) for window in evaluation.get("windows", [])],
@@ -118,6 +126,15 @@ def create_evaluation_markdown(evaluation_data):
         evaluation_data["验证状态"],
         "",
     ]
+    data_scope_lines = []
+    if data_scope.get("数据问题跳过文件"):
+        data_scope_lines.append(f"- 因数据问题跳过文件数：{len(data_scope['数据问题跳过文件'])}")
+    if data_scope.get("研究池外文件"):
+        data_scope_lines.append(f"- 按研究股票池规则排除文件数：{len(data_scope['研究池外文件'])}")
+    section_index = lines.index("## 滚动样本外验证")
+    if data_scope_lines:
+        data_scope_lines.append("")
+    lines[section_index:section_index] = data_scope_lines
     for window in evaluation_data["滚动样本外验证"]:
         lines.extend([f"### 窗口 {window['窗口']}", ""])
         if window.get("status") != "success":

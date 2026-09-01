@@ -1,0 +1,1511 @@
+{
+  "universe": "csi300",
+  "as_of_date": "2026-08-20",
+  "downloaded_at": "2026-08-20 10:23:00",
+  "source": "Eastmoney BK0500 constituent endpoint",
+  "source_note": "用于研究池构建；指数官方调样与历史成分以中证指数公告为准。",
+  "stock_count": 300,
+  "content_sha256": "e696d8a5e78bf128c6fbf20a456ee02069da8d5b872aa2f4003a69fed186a9c1",
+  "stocks": [
+    {
+      "code": "000001",
+      "name": "平安银行",
+      "market_code": "sz000001"
+    },
+    {
+      "code": "000002",
+      "name": "万  科Ａ",
+      "market_code": "sz000002"
+    },
+    {
+      "code": "000063",
+      "name": "中兴通讯",
+      "market_code": "sz000063"
+    },
+    {
+      "code": "000100",
+      "name": "TCL科技",
+      "market_code": "sz000100"
+    },
+    {
+      "code": "000157",
+      "name": "中联重科",
+      "market_code": "sz000157"
+    },
+    {
+      "code": "000166",
+      "name": "申万宏源",
+      "market_code": "sz000166"
+    },
+    {
+      "code": "000301",
+      "name": "东方盛虹",
+      "market_code": "sz000301"
+    },
+    {
+      "code": "000333",
+      "name": "美的集团",
+      "market_code": "sz000333"
+    },
+    {
+      "code": "000338",
+      "name": "潍柴动力",
+      "market_code": "sz000338"
+    },
+    {
+      "code": "000408",
+      "name": "藏格矿业",
+      "market_code": "sz000408"
+    },
+    {
+      "code": "000425",
+      "name": "徐工机械",
+      "market_code": "sz000425"
+    },
+    {
+      "code": "000538",
+      "name": "云南白药",
+      "market_code": "sz000538"
+    },
+    {
+      "code": "000568",
+      "name": "泸州老窖",
+      "market_code": "sz000568"
+    },
+    {
+      "code": "000596",
+      "name": "古井贡酒",
+      "market_code": "sz000596"
+    },
+    {
+      "code": "000617",
+      "name": "中油资本",
+      "market_code": "sz000617"
+    },
+    {
+      "code": "000625",
+      "name": "长安汽车",
+      "market_code": "sz000625"
+    },
+    {
+      "code": "000630",
+      "name": "铜陵有色",
+      "market_code": "sz000630"
+    },
+    {
+      "code": "000651",
+      "name": "格力电器",
+      "market_code": "sz000651"
+    },
+    {
+      "code": "000657",
+      "name": "中钨高新",
+      "market_code": "sz000657"
+    },
+    {
+      "code": "000708",
+      "name": "中信特钢",
+      "market_code": "sz000708"
+    },
+    {
+      "code": "000725",
+      "name": "京东方Ａ",
+      "market_code": "sz000725"
+    },
+    {
+      "code": "000768",
+      "name": "中航西飞",
+      "market_code": "sz000768"
+    },
+    {
+      "code": "000776",
+      "name": "广发证券",
+      "market_code": "sz000776"
+    },
+    {
+      "code": "000792",
+      "name": "盐湖股份",
+      "market_code": "sz000792"
+    },
+    {
+      "code": "000807",
+      "name": "云铝股份",
+      "market_code": "sz000807"
+    },
+    {
+      "code": "000858",
+      "name": "五 粮 液",
+      "market_code": "sz000858"
+    },
+    {
+      "code": "000895",
+      "name": "双汇发展",
+      "market_code": "sz000895"
+    },
+    {
+      "code": "000938",
+      "name": "紫光股份",
+      "market_code": "sz000938"
+    },
+    {
+      "code": "000963",
+      "name": "华东医药",
+      "market_code": "sz000963"
+    },
+    {
+      "code": "000975",
+      "name": "山金国际",
+      "market_code": "sz000975"
+    },
+    {
+      "code": "000977",
+      "name": "浪潮信息",
+      "market_code": "sz000977"
+    },
+    {
+      "code": "000988",
+      "name": "华工科技",
+      "market_code": "sz000988"
+    },
+    {
+      "code": "000999",
+      "name": "华润三九",
+      "market_code": "sz000999"
+    },
+    {
+      "code": "001280",
+      "name": "中国铀业",
+      "market_code": "sz001280"
+    },
+    {
+      "code": "001391",
+      "name": "国货航",
+      "market_code": "sz001391"
+    },
+    {
+      "code": "001965",
+      "name": "招商公路",
+      "market_code": "sz001965"
+    },
+    {
+      "code": "001979",
+      "name": "招商蛇口",
+      "market_code": "sz001979"
+    },
+    {
+      "code": "002001",
+      "name": "新 和 成",
+      "market_code": "sz002001"
+    },
+    {
+      "code": "002027",
+      "name": "分众传媒",
+      "market_code": "sz002027"
+    },
+    {
+      "code": "002028",
+      "name": "思源电气",
+      "market_code": "sz002028"
+    },
+    {
+      "code": "002049",
+      "name": "紫光国微",
+      "market_code": "sz002049"
+    },
+    {
+      "code": "002050",
+      "name": "三花智控",
+      "market_code": "sz002050"
+    },
+    {
+      "code": "002074",
+      "name": "国轩高科",
+      "market_code": "sz002074"
+    },
+    {
+      "code": "002142",
+      "name": "宁波银行",
+      "market_code": "sz002142"
+    },
+    {
+      "code": "002179",
+      "name": "中航光电",
+      "market_code": "sz002179"
+    },
+    {
+      "code": "002202",
+      "name": "金风科技",
+      "market_code": "sz002202"
+    },
+    {
+      "code": "002230",
+      "name": "科大讯飞",
+      "market_code": "sz002230"
+    },
+    {
+      "code": "002236",
+      "name": "大华股份",
+      "market_code": "sz002236"
+    },
+    {
+      "code": "002241",
+      "name": "歌尔股份",
+      "market_code": "sz002241"
+    },
+    {
+      "code": "002304",
+      "name": "洋河股份",
+      "market_code": "sz002304"
+    },
+    {
+      "code": "002311",
+      "name": "海大集团",
+      "market_code": "sz002311"
+    },
+    {
+      "code": "002352",
+      "name": "顺丰控股",
+      "market_code": "sz002352"
+    },
+    {
+      "code": "002353",
+      "name": "杰瑞股份",
+      "market_code": "sz002353"
+    },
+    {
+      "code": "002371",
+      "name": "北方华创",
+      "market_code": "sz002371"
+    },
+    {
+      "code": "002384",
+      "name": "东山精密",
+      "market_code": "sz002384"
+    },
+    {
+      "code": "002415",
+      "name": "海康威视",
+      "market_code": "sz002415"
+    },
+    {
+      "code": "002422",
+      "name": "科伦药业",
+      "market_code": "sz002422"
+    },
+    {
+      "code": "002460",
+      "name": "赣锋锂业",
+      "market_code": "sz002460"
+    },
+    {
+      "code": "002463",
+      "name": "沪电股份",
+      "market_code": "sz002463"
+    },
+    {
+      "code": "002466",
+      "name": "天齐锂业",
+      "market_code": "sz002466"
+    },
+    {
+      "code": "002475",
+      "name": "立讯精密",
+      "market_code": "sz002475"
+    },
+    {
+      "code": "002493",
+      "name": "荣盛石化",
+      "market_code": "sz002493"
+    },
+    {
+      "code": "002532",
+      "name": "天山铝业",
+      "market_code": "sz002532"
+    },
+    {
+      "code": "002558",
+      "name": "巨人网络",
+      "market_code": "sz002558"
+    },
+    {
+      "code": "002594",
+      "name": "比亚迪",
+      "market_code": "sz002594"
+    },
+    {
+      "code": "002600",
+      "name": "领益智造",
+      "market_code": "sz002600"
+    },
+    {
+      "code": "002602",
+      "name": "世纪华通",
+      "market_code": "sz002602"
+    },
+    {
+      "code": "002625",
+      "name": "光启技术",
+      "market_code": "sz002625"
+    },
+    {
+      "code": "002648",
+      "name": "卫星化学",
+      "market_code": "sz002648"
+    },
+    {
+      "code": "002709",
+      "name": "天赐材料",
+      "market_code": "sz002709"
+    },
+    {
+      "code": "002714",
+      "name": "牧原股份",
+      "market_code": "sz002714"
+    },
+    {
+      "code": "002736",
+      "name": "国信证券",
+      "market_code": "sz002736"
+    },
+    {
+      "code": "002837",
+      "name": "英维克",
+      "market_code": "sz002837"
+    },
+    {
+      "code": "002916",
+      "name": "深南电路",
+      "market_code": "sz002916"
+    },
+    {
+      "code": "002920",
+      "name": "德赛西威",
+      "market_code": "sz002920"
+    },
+    {
+      "code": "002938",
+      "name": "鹏鼎控股",
+      "market_code": "sz002938"
+    },
+    {
+      "code": "003816",
+      "name": "中国广核",
+      "market_code": "sz003816"
+    },
+    {
+      "code": "300014",
+      "name": "亿纬锂能",
+      "market_code": "sz300014"
+    },
+    {
+      "code": "300015",
+      "name": "爱尔眼科",
+      "market_code": "sz300015"
+    },
+    {
+      "code": "300033",
+      "name": "同花顺",
+      "market_code": "sz300033"
+    },
+    {
+      "code": "300059",
+      "name": "东方财富",
+      "market_code": "sz300059"
+    },
+    {
+      "code": "300122",
+      "name": "智飞生物",
+      "market_code": "sz300122"
+    },
+    {
+      "code": "300124",
+      "name": "汇川技术",
+      "market_code": "sz300124"
+    },
+    {
+      "code": "300251",
+      "name": "光线传媒",
+      "market_code": "sz300251"
+    },
+    {
+      "code": "300274",
+      "name": "阳光电源",
+      "market_code": "sz300274"
+    },
+    {
+      "code": "300308",
+      "name": "中际旭创",
+      "market_code": "sz300308"
+    },
+    {
+      "code": "300316",
+      "name": "晶盛机电",
+      "market_code": "sz300316"
+    },
+    {
+      "code": "300394",
+      "name": "天孚通信",
+      "market_code": "sz300394"
+    },
+    {
+      "code": "300408",
+      "name": "三环集团",
+      "market_code": "sz300408"
+    },
+    {
+      "code": "300413",
+      "name": "芒果超媒",
+      "market_code": "sz300413"
+    },
+    {
+      "code": "300418",
+      "name": "昆仑万维",
+      "market_code": "sz300418"
+    },
+    {
+      "code": "300433",
+      "name": "蓝思科技",
+      "market_code": "sz300433"
+    },
+    {
+      "code": "300442",
+      "name": "润泽科技",
+      "market_code": "sz300442"
+    },
+    {
+      "code": "300450",
+      "name": "先导智能",
+      "market_code": "sz300450"
+    },
+    {
+      "code": "300476",
+      "name": "胜宏科技",
+      "market_code": "sz300476"
+    },
+    {
+      "code": "300498",
+      "name": "温氏股份",
+      "market_code": "sz300498"
+    },
+    {
+      "code": "300502",
+      "name": "新易盛",
+      "market_code": "sz300502"
+    },
+    {
+      "code": "300628",
+      "name": "亿联网络",
+      "market_code": "sz300628"
+    },
+    {
+      "code": "300661",
+      "name": "圣邦股份",
+      "market_code": "sz300661"
+    },
+    {
+      "code": "300750",
+      "name": "宁德时代",
+      "market_code": "sz300750"
+    },
+    {
+      "code": "300760",
+      "name": "迈瑞医疗",
+      "market_code": "sz300760"
+    },
+    {
+      "code": "300803",
+      "name": "指南针",
+      "market_code": "sz300803"
+    },
+    {
+      "code": "300832",
+      "name": "新产业",
+      "market_code": "sz300832"
+    },
+    {
+      "code": "300866",
+      "name": "安克创新",
+      "market_code": "sz300866"
+    },
+    {
+      "code": "300896",
+      "name": "爱美客",
+      "market_code": "sz300896"
+    },
+    {
+      "code": "300999",
+      "name": "金龙鱼",
+      "market_code": "sz300999"
+    },
+    {
+      "code": "301165",
+      "name": "锐捷网络",
+      "market_code": "sz301165"
+    },
+    {
+      "code": "301236",
+      "name": "软通动力",
+      "market_code": "sz301236"
+    },
+    {
+      "code": "301269",
+      "name": "华大九天",
+      "market_code": "sz301269"
+    },
+    {
+      "code": "301308",
+      "name": "江波龙",
+      "market_code": "sz301308"
+    },
+    {
+      "code": "302132",
+      "name": "中航成飞",
+      "market_code": "sz302132"
+    },
+    {
+      "code": "600000",
+      "name": "浦发银行",
+      "market_code": "sh600000"
+    },
+    {
+      "code": "600009",
+      "name": "上海机场",
+      "market_code": "sh600009"
+    },
+    {
+      "code": "600010",
+      "name": "包钢股份",
+      "market_code": "sh600010"
+    },
+    {
+      "code": "600011",
+      "name": "华能国际",
+      "market_code": "sh600011"
+    },
+    {
+      "code": "600015",
+      "name": "华夏银行",
+      "market_code": "sh600015"
+    },
+    {
+      "code": "600016",
+      "name": "民生银行",
+      "market_code": "sh600016"
+    },
+    {
+      "code": "600018",
+      "name": "上港集团",
+      "market_code": "sh600018"
+    },
+    {
+      "code": "600019",
+      "name": "宝钢股份",
+      "market_code": "sh600019"
+    },
+    {
+      "code": "600023",
+      "name": "浙能电力",
+      "market_code": "sh600023"
+    },
+    {
+      "code": "600025",
+      "name": "华能水电",
+      "market_code": "sh600025"
+    },
+    {
+      "code": "600026",
+      "name": "中远海能",
+      "market_code": "sh600026"
+    },
+    {
+      "code": "600027",
+      "name": "华电国际",
+      "market_code": "sh600027"
+    },
+    {
+      "code": "600028",
+      "name": "中国石化",
+      "market_code": "sh600028"
+    },
+    {
+      "code": "600029",
+      "name": "南方航空",
+      "market_code": "sh600029"
+    },
+    {
+      "code": "600030",
+      "name": "中信证券",
+      "market_code": "sh600030"
+    },
+    {
+      "code": "600031",
+      "name": "三一重工",
+      "market_code": "sh600031"
+    },
+    {
+      "code": "600036",
+      "name": "招商银行",
+      "market_code": "sh600036"
+    },
+    {
+      "code": "600039",
+      "name": "四川路桥",
+      "market_code": "sh600039"
+    },
+    {
+      "code": "600048",
+      "name": "保利发展",
+      "market_code": "sh600048"
+    },
+    {
+      "code": "600050",
+      "name": "中国联通",
+      "market_code": "sh600050"
+    },
+    {
+      "code": "600061",
+      "name": "国投资本",
+      "market_code": "sh600061"
+    },
+    {
+      "code": "600066",
+      "name": "宇通客车",
+      "market_code": "sh600066"
+    },
+    {
+      "code": "600085",
+      "name": "同仁堂",
+      "market_code": "sh600085"
+    },
+    {
+      "code": "600089",
+      "name": "特变电工",
+      "market_code": "sh600089"
+    },
+    {
+      "code": "600104",
+      "name": "上汽集团",
+      "market_code": "sh600104"
+    },
+    {
+      "code": "600111",
+      "name": "北方稀土",
+      "market_code": "sh600111"
+    },
+    {
+      "code": "600115",
+      "name": "中国东航",
+      "market_code": "sh600115"
+    },
+    {
+      "code": "600118",
+      "name": "中国卫星",
+      "market_code": "sh600118"
+    },
+    {
+      "code": "600150",
+      "name": "中国船舶",
+      "market_code": "sh600150"
+    },
+    {
+      "code": "600160",
+      "name": "巨化股份",
+      "market_code": "sh600160"
+    },
+    {
+      "code": "600176",
+      "name": "中国巨石",
+      "market_code": "sh600176"
+    },
+    {
+      "code": "600183",
+      "name": "生益科技",
+      "market_code": "sh600183"
+    },
+    {
+      "code": "600188",
+      "name": "兖矿能源",
+      "market_code": "sh600188"
+    },
+    {
+      "code": "600196",
+      "name": "复星医药",
+      "market_code": "sh600196"
+    },
+    {
+      "code": "600219",
+      "name": "南山铝业",
+      "market_code": "sh600219"
+    },
+    {
+      "code": "600221",
+      "name": "海航控股",
+      "market_code": "sh600221"
+    },
+    {
+      "code": "600233",
+      "name": "圆通速递",
+      "market_code": "sh600233"
+    },
+    {
+      "code": "600276",
+      "name": "恒瑞医药",
+      "market_code": "sh600276"
+    },
+    {
+      "code": "600309",
+      "name": "万华化学",
+      "market_code": "sh600309"
+    },
+    {
+      "code": "600346",
+      "name": "恒力石化",
+      "market_code": "sh600346"
+    },
+    {
+      "code": "600362",
+      "name": "江西铜业",
+      "market_code": "sh600362"
+    },
+    {
+      "code": "600372",
+      "name": "中航机载",
+      "market_code": "sh600372"
+    },
+    {
+      "code": "600406",
+      "name": "国电南瑞",
+      "market_code": "sh600406"
+    },
+    {
+      "code": "600415",
+      "name": "小商品城",
+      "market_code": "sh600415"
+    },
+    {
+      "code": "600426",
+      "name": "华鲁恒升",
+      "market_code": "sh600426"
+    },
+    {
+      "code": "600436",
+      "name": "片仔癀",
+      "market_code": "sh600436"
+    },
+    {
+      "code": "600438",
+      "name": "通威股份",
+      "market_code": "sh600438"
+    },
+    {
+      "code": "600460",
+      "name": "士兰微",
+      "market_code": "sh600460"
+    },
+    {
+      "code": "600482",
+      "name": "中国动力",
+      "market_code": "sh600482"
+    },
+    {
+      "code": "600489",
+      "name": "中金黄金",
+      "market_code": "sh600489"
+    },
+    {
+      "code": "600515",
+      "name": "海南机场",
+      "market_code": "sh600515"
+    },
+    {
+      "code": "600519",
+      "name": "贵州茅台",
+      "market_code": "sh600519"
+    },
+    {
+      "code": "600522",
+      "name": "中天科技",
+      "market_code": "sh600522"
+    },
+    {
+      "code": "600547",
+      "name": "山东黄金",
+      "market_code": "sh600547"
+    },
+    {
+      "code": "600549",
+      "name": "厦门钨业",
+      "market_code": "sh600549"
+    },
+    {
+      "code": "600570",
+      "name": "恒生电子",
+      "market_code": "sh600570"
+    },
+    {
+      "code": "600584",
+      "name": "长电科技",
+      "market_code": "sh600584"
+    },
+    {
+      "code": "600585",
+      "name": "海螺水泥",
+      "market_code": "sh600585"
+    },
+    {
+      "code": "600588",
+      "name": "用友网络",
+      "market_code": "sh600588"
+    },
+    {
+      "code": "600600",
+      "name": "青岛啤酒",
+      "market_code": "sh600600"
+    },
+    {
+      "code": "600660",
+      "name": "福耀玻璃",
+      "market_code": "sh600660"
+    },
+    {
+      "code": "600674",
+      "name": "川投能源",
+      "market_code": "sh600674"
+    },
+    {
+      "code": "600690",
+      "name": "海尔智家",
+      "market_code": "sh600690"
+    },
+    {
+      "code": "600741",
+      "name": "华域汽车",
+      "market_code": "sh600741"
+    },
+    {
+      "code": "600760",
+      "name": "中航沈飞",
+      "market_code": "sh600760"
+    },
+    {
+      "code": "600795",
+      "name": "国电电力",
+      "market_code": "sh600795"
+    },
+    {
+      "code": "600803",
+      "name": "新奥股份",
+      "market_code": "sh600803"
+    },
+    {
+      "code": "600809",
+      "name": "山西汾酒",
+      "market_code": "sh600809"
+    },
+    {
+      "code": "600845",
+      "name": "宝信软件",
+      "market_code": "sh600845"
+    },
+    {
+      "code": "600875",
+      "name": "东方电气",
+      "market_code": "sh600875"
+    },
+    {
+      "code": "600886",
+      "name": "国投电力",
+      "market_code": "sh600886"
+    },
+    {
+      "code": "600887",
+      "name": "伊利股份",
+      "market_code": "sh600887"
+    },
+    {
+      "code": "600893",
+      "name": "航发动力",
+      "market_code": "sh600893"
+    },
+    {
+      "code": "600900",
+      "name": "长江电力",
+      "market_code": "sh600900"
+    },
+    {
+      "code": "600905",
+      "name": "三峡能源",
+      "market_code": "sh600905"
+    },
+    {
+      "code": "600918",
+      "name": "中泰证券",
+      "market_code": "sh600918"
+    },
+    {
+      "code": "600919",
+      "name": "江苏银行",
+      "market_code": "sh600919"
+    },
+    {
+      "code": "600926",
+      "name": "杭州银行",
+      "market_code": "sh600926"
+    },
+    {
+      "code": "600930",
+      "name": "华电新能",
+      "market_code": "sh600930"
+    },
+    {
+      "code": "600938",
+      "name": "中国海油",
+      "market_code": "sh600938"
+    },
+    {
+      "code": "600941",
+      "name": "中国移动",
+      "market_code": "sh600941"
+    },
+    {
+      "code": "600958",
+      "name": "东方证券",
+      "market_code": "sh600958"
+    },
+    {
+      "code": "600989",
+      "name": "宝丰能源",
+      "market_code": "sh600989"
+    },
+    {
+      "code": "600999",
+      "name": "招商证券",
+      "market_code": "sh600999"
+    },
+    {
+      "code": "601006",
+      "name": "大秦铁路",
+      "market_code": "sh601006"
+    },
+    {
+      "code": "601009",
+      "name": "南京银行",
+      "market_code": "sh601009"
+    },
+    {
+      "code": "601012",
+      "name": "隆基绿能",
+      "market_code": "sh601012"
+    },
+    {
+      "code": "601018",
+      "name": "宁波港",
+      "market_code": "sh601018"
+    },
+    {
+      "code": "601021",
+      "name": "春秋航空",
+      "market_code": "sh601021"
+    },
+    {
+      "code": "601058",
+      "name": "赛轮轮胎",
+      "market_code": "sh601058"
+    },
+    {
+      "code": "601059",
+      "name": "信达证券",
+      "market_code": "sh601059"
+    },
+    {
+      "code": "601066",
+      "name": "XD中信建",
+      "market_code": "sh601066"
+    },
+    {
+      "code": "601077",
+      "name": "渝农商行",
+      "market_code": "sh601077"
+    },
+    {
+      "code": "601088",
+      "name": "中国神华",
+      "market_code": "sh601088"
+    },
+    {
+      "code": "601100",
+      "name": "恒立液压",
+      "market_code": "sh601100"
+    },
+    {
+      "code": "601111",
+      "name": "中国国航",
+      "market_code": "sh601111"
+    },
+    {
+      "code": "601117",
+      "name": "中国化学",
+      "market_code": "sh601117"
+    },
+    {
+      "code": "601127",
+      "name": "赛力斯",
+      "market_code": "sh601127"
+    },
+    {
+      "code": "601136",
+      "name": "首创证券",
+      "market_code": "sh601136"
+    },
+    {
+      "code": "601138",
+      "name": "工业富联",
+      "market_code": "sh601138"
+    },
+    {
+      "code": "601166",
+      "name": "兴业银行",
+      "market_code": "sh601166"
+    },
+    {
+      "code": "601169",
+      "name": "北京银行",
+      "market_code": "sh601169"
+    },
+    {
+      "code": "601186",
+      "name": "中国铁建",
+      "market_code": "sh601186"
+    },
+    {
+      "code": "601211",
+      "name": "国泰海通",
+      "market_code": "sh601211"
+    },
+    {
+      "code": "601225",
+      "name": "陕西煤业",
+      "market_code": "sh601225"
+    },
+    {
+      "code": "601229",
+      "name": "上海银行",
+      "market_code": "sh601229"
+    },
+    {
+      "code": "601238",
+      "name": "广汽集团",
+      "market_code": "sh601238"
+    },
+    {
+      "code": "601288",
+      "name": "农业银行",
+      "market_code": "sh601288"
+    },
+    {
+      "code": "601318",
+      "name": "中国平安",
+      "market_code": "sh601318"
+    },
+    {
+      "code": "601319",
+      "name": "中国人保",
+      "market_code": "sh601319"
+    },
+    {
+      "code": "601328",
+      "name": "交通银行",
+      "market_code": "sh601328"
+    },
+    {
+      "code": "601336",
+      "name": "新华保险",
+      "market_code": "sh601336"
+    },
+    {
+      "code": "601360",
+      "name": "三六零",
+      "market_code": "sh601360"
+    },
+    {
+      "code": "601377",
+      "name": "兴业证券",
+      "market_code": "sh601377"
+    },
+    {
+      "code": "601390",
+      "name": "中国中铁",
+      "market_code": "sh601390"
+    },
+    {
+      "code": "601398",
+      "name": "工商银行",
+      "market_code": "sh601398"
+    },
+    {
+      "code": "601456",
+      "name": "国联民生",
+      "market_code": "sh601456"
+    },
+    {
+      "code": "601600",
+      "name": "中国铝业",
+      "market_code": "sh601600"
+    },
+    {
+      "code": "601601",
+      "name": "中国太保",
+      "market_code": "sh601601"
+    },
+    {
+      "code": "601607",
+      "name": "上海医药",
+      "market_code": "sh601607"
+    },
+    {
+      "code": "601618",
+      "name": "中国中冶",
+      "market_code": "sh601618"
+    },
+    {
+      "code": "601628",
+      "name": "中国人寿",
+      "market_code": "sh601628"
+    },
+    {
+      "code": "601633",
+      "name": "长城汽车",
+      "market_code": "sh601633"
+    },
+    {
+      "code": "601658",
+      "name": "邮储银行",
+      "market_code": "sh601658"
+    },
+    {
+      "code": "601668",
+      "name": "中国建筑",
+      "market_code": "sh601668"
+    },
+    {
+      "code": "601669",
+      "name": "中国电建",
+      "market_code": "sh601669"
+    },
+    {
+      "code": "601688",
+      "name": "华泰证券",
+      "market_code": "sh601688"
+    },
+    {
+      "code": "601689",
+      "name": "拓普集团",
+      "market_code": "sh601689"
+    },
+    {
+      "code": "601698",
+      "name": "中国卫通",
+      "market_code": "sh601698"
+    },
+    {
+      "code": "601727",
+      "name": "上海电气",
+      "market_code": "sh601727"
+    },
+    {
+      "code": "601728",
+      "name": "中国电信",
+      "market_code": "sh601728"
+    },
+    {
+      "code": "601766",
+      "name": "中国中车",
+      "market_code": "sh601766"
+    },
+    {
+      "code": "601788",
+      "name": "光大证券",
+      "market_code": "sh601788"
+    },
+    {
+      "code": "601800",
+      "name": "中国交建",
+      "market_code": "sh601800"
+    },
+    {
+      "code": "601816",
+      "name": "京沪高铁",
+      "market_code": "sh601816"
+    },
+    {
+      "code": "601818",
+      "name": "光大银行",
+      "market_code": "sh601818"
+    },
+    {
+      "code": "601825",
+      "name": "沪农商行",
+      "market_code": "sh601825"
+    },
+    {
+      "code": "601838",
+      "name": "成都银行",
+      "market_code": "sh601838"
+    },
+    {
+      "code": "601857",
+      "name": "中国石油",
+      "market_code": "sh601857"
+    },
+    {
+      "code": "601868",
+      "name": "中国能建",
+      "market_code": "sh601868"
+    },
+    {
+      "code": "601872",
+      "name": "招商轮船",
+      "market_code": "sh601872"
+    },
+    {
+      "code": "601877",
+      "name": "正泰电器",
+      "market_code": "sh601877"
+    },
+    {
+      "code": "601878",
+      "name": "浙商证券",
+      "market_code": "sh601878"
+    },
+    {
+      "code": "601881",
+      "name": "中国银河",
+      "market_code": "sh601881"
+    },
+    {
+      "code": "601888",
+      "name": "中国中免",
+      "market_code": "sh601888"
+    },
+    {
+      "code": "601898",
+      "name": "中煤能源",
+      "market_code": "sh601898"
+    },
+    {
+      "code": "601899",
+      "name": "紫金矿业",
+      "market_code": "sh601899"
+    },
+    {
+      "code": "601901",
+      "name": "XD方正证",
+      "market_code": "sh601901"
+    },
+    {
+      "code": "601916",
+      "name": "浙商银行",
+      "market_code": "sh601916"
+    },
+    {
+      "code": "601919",
+      "name": "中远海控",
+      "market_code": "sh601919"
+    },
+    {
+      "code": "601939",
+      "name": "建设银行",
+      "market_code": "sh601939"
+    },
+    {
+      "code": "601985",
+      "name": "中国核电",
+      "market_code": "sh601985"
+    },
+    {
+      "code": "601988",
+      "name": "中国银行",
+      "market_code": "sh601988"
+    },
+    {
+      "code": "601995",
+      "name": "中金公司",
+      "market_code": "sh601995"
+    },
+    {
+      "code": "601998",
+      "name": "中信银行",
+      "market_code": "sh601998"
+    },
+    {
+      "code": "603019",
+      "name": "中科曙光",
+      "market_code": "sh603019"
+    },
+    {
+      "code": "603259",
+      "name": "药明康德",
+      "market_code": "sh603259"
+    },
+    {
+      "code": "603260",
+      "name": "合盛硅业",
+      "market_code": "sh603260"
+    },
+    {
+      "code": "603288",
+      "name": "海天味业",
+      "market_code": "sh603288"
+    },
+    {
+      "code": "603296",
+      "name": "华勤技术",
+      "market_code": "sh603296"
+    },
+    {
+      "code": "603369",
+      "name": "今世缘",
+      "market_code": "sh603369"
+    },
+    {
+      "code": "603392",
+      "name": "万泰生物",
+      "market_code": "sh603392"
+    },
+    {
+      "code": "603501",
+      "name": "豪威集团",
+      "market_code": "sh603501"
+    },
+    {
+      "code": "603799",
+      "name": "华友钴业",
+      "market_code": "sh603799"
+    },
+    {
+      "code": "603893",
+      "name": "瑞芯微",
+      "market_code": "sh603893"
+    },
+    {
+      "code": "603986",
+      "name": "兆易创新",
+      "market_code": "sh603986"
+    },
+    {
+      "code": "603993",
+      "name": "洛阳钼业",
+      "market_code": "sh603993"
+    },
+    {
+      "code": "605117",
+      "name": "德业股份",
+      "market_code": "sh605117"
+    },
+    {
+      "code": "605499",
+      "name": "东鹏饮料",
+      "market_code": "sh605499"
+    },
+    {
+      "code": "688008",
+      "name": "澜起科技",
+      "market_code": "sh688008"
+    },
+    {
+      "code": "688009",
+      "name": "中国通号",
+      "market_code": "sh688009"
+    },
+    {
+      "code": "688012",
+      "name": "中微公司",
+      "market_code": "sh688012"
+    },
+    {
+      "code": "688036",
+      "name": "传音控股",
+      "market_code": "sh688036"
+    },
+    {
+      "code": "688041",
+      "name": "海光信息",
+      "market_code": "sh688041"
+    },
+    {
+      "code": "688047",
+      "name": "龙芯中科",
+      "market_code": "sh688047"
+    },
+    {
+      "code": "688072",
+      "name": "拓荆科技",
+      "market_code": "sh688072"
+    },
+    {
+      "code": "688082",
+      "name": "盛美上海",
+      "market_code": "sh688082"
+    },
+    {
+      "code": "688111",
+      "name": "金山办公",
+      "market_code": "sh688111"
+    },
+    {
+      "code": "688126",
+      "name": "沪硅产业",
+      "market_code": "sh688126"
+    },
+    {
+      "code": "688183",
+      "name": "生益电子",
+      "market_code": "sh688183"
+    },
+    {
+      "code": "688223",
+      "name": "晶科能源",
+      "market_code": "sh688223"
+    },
+    {
+      "code": "688256",
+      "name": "寒武纪",
+      "market_code": "sh688256"
+    },
+    {
+      "code": "688271",
+      "name": "联影医疗",
+      "market_code": "sh688271"
+    },
+    {
+      "code": "688303",
+      "name": "大全能源",
+      "market_code": "sh688303"
+    },
+    {
+      "code": "688396",
+      "name": "华润微",
+      "market_code": "sh688396"
+    },
+    {
+      "code": "688472",
+      "name": "阿特斯",
+      "market_code": "sh688472"
+    },
+    {
+      "code": "688506",
+      "name": "百利天恒",
+      "market_code": "sh688506"
+    },
+    {
+      "code": "688521",
+      "name": "芯原股份",
+      "market_code": "sh688521"
+    },
+    {
+      "code": "688981",
+      "name": "中芯国际",
+      "market_code": "sh688981"
+    }
+  ]
+}

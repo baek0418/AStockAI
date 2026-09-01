@@ -69,14 +69,16 @@ class ScheduledDailyReportTests(unittest.TestCase):
         )
 
         self.assertEqual(result, 0)
-        runner.assert_called_once_with(
+        self.assertEqual(runner.call_count, 2)
+        runner.assert_any_call(
             [
                 str(self.project_directory / ".venv" / "bin" / "python"),
-                "pipeline.py",
-                "--send-email",
-            ],
-            cwd=self.project_directory,
-            check=False,
+                "fundamental_data.py", "--watchlist", "--max-age-days", "7",
+            ], cwd=self.project_directory, check=False,
+        )
+        runner.assert_any_call(
+            [str(self.project_directory / ".venv" / "bin" / "python"), "pipeline.py", "--send-email"],
+            cwd=self.project_directory, check=False,
         )
 
 

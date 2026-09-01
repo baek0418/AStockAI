@@ -5,6 +5,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from fundamental_data import (
+    build_industry_peer_comparison,
+    build_valuation_observation,
+    load_fundamental_snapshot,
+    summarize_fundamental_evidence,
+)
+
 
 PROJECT_DIRECTORY = Path(__file__).parent.resolve()
 MARKET_FILES = {
@@ -343,6 +350,26 @@ def build_market_evidence(market_context):
     return {"市场环境": market_context}
 
 
+def attach_fundamental_research(stock_evidence, fundamental_directory):
+    """为日报股票附加只读基本面、估值观察和严格同业比较。"""
+    enriched = dict(stock_evidence)
+    try:
+        snapshot = load_fundamental_snapshot(enriched.get("股票代码", ""), fundamental_directory)
+        fundamental = summarize_fundamental_evidence(snapshot)
+        peer_comparison = build_industry_peer_comparison(snapshot, fundamental_directory)
+    except ValueError as error:
+        fundamental = {"数据状态": f"数据不足：基本面快照股票代码无效：{error}。", "事实": []}
+        peer_comparison = {"数据状态": "数据不足：基本面快照股票代码无效，不能进行同业比较。"}
+    fundamental["价格日期"] = enriched.get("量化数据截至日期", INSUFFICIENT)
+    valuation = build_valuation_observation(
+        fundamental, enriched.get("当前量化证据", {}).get("收盘价")
+    )
+    enriched["基本面研究证据"] = fundamental
+    enriched["估值观察"] = valuation
+    enriched["行业同业比较"] = peer_comparison
+    return enriched
+
+
 def build_research_recommendations(quant_context, limit=3):
     """从当日量化快照稳定选出最多三只优先研究标的。
 
@@ -451,10 +478,12 @@ def build_report_evidence(
         }
     watch_config_context = load_watchlist_config(watchlist_file)
     market_context = load_market_context(market_directory)
-    stocks = [
+    raw_stocks = [
         build_stock_evidence(stock, quant_context, daily_context, watch_snapshot_context, watch_config_context, market_context, announcement_context)
         for stock in watch_config_context.get("stocks", [])
     ]
+    fundamental_directory = Path(market_directory).parent / "fundamentals"
+    stocks = [attach_fundamental_research(stock, fundamental_directory) for stock in raw_stocks]
     return {
         "报告日期": (quant_context.get("data") or {}).get("快照日期", INSUFFICIENT),
         "量化快照": quant_context,

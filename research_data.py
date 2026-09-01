@@ -10,6 +10,7 @@ from score import calculate_score
 from stock_universe import create_stock_code_lookup, get_enabled_stock_universe
 from strategy_backtest import INITIAL_CAPITAL, run_strategy_backtest
 from conservative_candidates import build_conservative_candidates
+from technical_indicators import latest_technical_indicators
 
 
 REQUIRED_COLUMNS = {"日期", "收盘", "成交量"}
@@ -44,6 +45,10 @@ def create_stock_snapshot(file_path, stock_code_lookup):
     stock_name = file_path.stem.replace("历史", "")
     latest_market_data = get_latest_market_data(file_path)
     score_result = calculate_score(file_path)
+    try:
+        technical_indicators = latest_technical_indicators(pd.read_csv(file_path, encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, ValueError, pd.errors.ParserError):
+        technical_indicators = {"数据状态": "数据不足，未生成扩展技术指标。"}
 
     stock_snapshot = {
         "股票名称": stock_name,
@@ -55,6 +60,7 @@ def create_stock_snapshot(file_path, stock_code_lookup):
         "MACD": score_result["MACD"],
         "综合评分": score_result["评分"],
         "建议": score_result["建议"],
+        "扩展技术指标": technical_indicators,
     }
 
     stock_code = stock_code_lookup.get(stock_name)

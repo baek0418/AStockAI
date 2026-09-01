@@ -16,6 +16,7 @@ from prediction_benchmark_data import (
     download_benchmarks,
 )
 from prediction_data_audit import audit_data
+from prediction_evaluation import create_evaluation_data
 from prediction_features import HORIZON_DAYS
 from prediction_features_v2 import (
     FEATURE_COLUMNS_V2,
@@ -181,6 +182,27 @@ class PredictionV51Tests(unittest.TestCase):
         )
         self.assertFalse(result["ready"])
 
+    def test_evaluation_separates_research_pool_exclusions_from_data_problems(self):
+        dataset = pd.DataFrame({
+            "日期": pd.to_datetime(["2025-01-01"]),
+            "股票名称": ["测试股票"],
+            "target_up_5d": [1.0],
+        })
+        evaluation = {"ready": True, "windows": [], "aggregate_metrics": None, "aggregate_baseline_metrics": None}
+        report = create_evaluation_data(
+            dataset,
+            evaluation,
+            [
+                {"file": "池外.csv", "reason": "不在当前启用的研究股票池快照中。"},
+                {"file": "坏数据.csv", "reason": "历史 CSV 缺少字段：日期。"},
+            ],
+            "test",
+        )
+        self.assertEqual(len(report["数据范围"]["研究池外文件"]), 1)
+        self.assertEqual(len(report["数据范围"]["数据问题跳过文件"]), 1)
+        self.assertIn("因数据问题被跳过；应核对", "\n".join(report["风险提示"]))
+        self.assertIn("研究股票池规则明确排除", "\n".join(report["风险提示"]))
+
     def test_audit_counts_only_trainable_root_csv_and_ignores_market(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -191,7 +213,7 @@ class PredictionV51Tests(unittest.TestCase):
             make_history().to_csv(data / "market" / BENCHMARKS["沪深300"]["file_name"], index=False)
             audit = audit_data(data, root)
             self.assertEqual(audit["股票数量"], 1)
-            self.assertIn("当前仅有 16 只股票", audit["横截面限制"])
+            self.assertIn("当前仅有 1 只可训练股票", audit["横截面限制"])
 
     def test_prediction_refuses_when_no_validated_v51_model(self):
         with tempfile.TemporaryDirectory() as directory:

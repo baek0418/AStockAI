@@ -7,14 +7,26 @@ from pathlib import Path
 
 import pandas as pd
 
-from prediction_features import HORIZON_DAYS, REQUIRED_COLUMNS, build_feature_dataset, get_labeled_dataset
+from prediction_features import (
+    HORIZON_DAYS,
+    REQUIRED_COLUMNS,
+    build_feature_dataset,
+    create_stock_code_lookup,
+    get_enabled_research_stock_codes,
+    get_labeled_dataset,
+)
 
 
 def audit_data(data_directory, project_directory):
     """只扫描 data 根目录正式 CSV，不递归、不下载、不写入 CSV。"""
     data_directory = Path(data_directory)
+    project_directory = Path(project_directory)
+    code_lookup = create_stock_code_lookup(project_directory)
+    allowed_stock_codes = get_enabled_research_stock_codes(project_directory)
     files = []
     for csv_file in sorted(data_directory.glob("*.csv")):
+        stock_name = csv_file.stem.replace("历史", "")
+        stock_code = code_lookup.get(stock_name, "")
         try:
             raw = pd.read_csv(csv_file, encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError, pd.errors.ParserError) as error:
@@ -30,10 +42,12 @@ def audit_data(data_directory, project_directory):
         valid = dates.notna() & close.notna() & volume.notna()
         valid_count = int(valid.sum())
         status = "可训练" if valid_count > HORIZON_DAYS else "数据不足"
+        if allowed_stock_codes is not None and stock_code not in allowed_stock_codes:
+            status = "研究池外"
         files.append(
             {
                 "文件": csv_file.name,
-                "股票名称": csv_file.stem.replace("历史", ""),
+                "股票名称": stock_name,
                 "状态": status if valid_count else "无效",
                 "原始行数": int(len(raw)),
                 "有效样本数": valid_count,
@@ -45,7 +59,9 @@ def audit_data(data_directory, project_directory):
             }
         )
     try:
-        feature_data, skipped = build_feature_dataset(data_directory, project_directory)
+        feature_data, skipped = build_feature_dataset(
+            data_directory, project_directory, allowed_stock_codes=allowed_stock_codes
+        )
         labeled = get_labeled_dataset(feature_data)
         sample_distribution = [
             {"股票名称": name, "训练样本数": int(len(group))}
@@ -55,11 +71,18 @@ def audit_data(data_directory, project_directory):
         skipped = [{"reason": str(error)}]
         sample_distribution = []
     valid_stocks = [file for file in files if file.get("状态") == "可训练"]
+    valid_stock_count = len(valid_stocks)
     return {
         "生成时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "数据范围": "仅 data/*.csv；不包含 data/on_demand/ 或 data/market/。",
-        "股票数量": len(valid_stocks),
-        "横截面限制": "当前仅有 16 只股票时，股票横截面覆盖有限，不能代表全市场。",
+        "数据范围": (
+            "仅使用当前启用的研究股票池快照中 data/*.csv；不包含 data/on_demand/ 或 data/market/。"
+            if allowed_stock_codes is not None
+            else "仅 data/*.csv；不包含 data/on_demand/ 或 data/market/。"
+        ),
+        "股票数量": valid_stock_count,
+        "横截面限制": (
+            f"当前仅有 {valid_stock_count} 只可训练股票，股票横截面覆盖有限，不能代表全市场。"
+        ),
         "文件审计": files,
         "训练样本按股票分布": sample_distribution,
         "特征构建跳过文件": skipped,

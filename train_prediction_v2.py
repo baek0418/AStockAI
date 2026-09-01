@@ -22,6 +22,7 @@ from prediction_model import (
     get_sklearn_dependencies,
 )
 from train_prediction import get_joblib
+from process_journal import ProcessJournal
 
 
 PROJECT_DIRECTORY = Path(__file__).parent.resolve()
@@ -72,6 +73,8 @@ def create_metadata(dataset, evaluation_data, calibration_info, sklearn_version,
 def train_prediction_v2(project_directory=PROJECT_DIRECTORY, benchmark_name=DEFAULT_BENCHMARK):
     """运行固定随机种子、扩张窗口和时间 sigmoid 校准的 v5.1 实验。"""
     project_directory = Path(project_directory)
+    journal = ProcessJournal("prediction_v51_training", project_directory)
+    journal.event("初始化", "info", 模型版本=MODEL_VERSION_V2, 市场基准=benchmark_name)
     try:
         dependencies = get_sklearn_dependencies()
         joblib = get_joblib()
@@ -80,8 +83,18 @@ def train_prediction_v2(project_directory=PROJECT_DIRECTORY, benchmark_name=DEFA
         )
         dataset = get_labeled_dataset_v2(features)
     except (RuntimeError, ValueError) as error:
+        journal.event("构建特征", "failed", 原因=str(error))
         return {"status": "failed", "message": str(error)}
+    journal.event(
+        "构建特征",
+        "info",
+        样本数=len(dataset),
+        股票数=int(dataset["股票名称"].nunique()) if not dataset.empty else 0,
+        跳过文件数=len(skipped_files),
+        特征数=len(FEATURE_COLUMNS_V2),
+    )
     if len(dataset) < MIN_TRAIN_SAMPLES or dataset[LABEL_COLUMN_V2].nunique() < 2:
+        journal.event("训练准入", "failed", 原因="研究样本不足或标签只有单一类别。")
         return {"status": "failed", "message": "研究样本不足或标签只有单一类别，拒绝训练。"}
     evaluation = evaluate_rolling_windows(
         dataset,
@@ -118,11 +131,18 @@ def train_prediction_v2(project_directory=PROJECT_DIRECTORY, benchmark_name=DEFA
     evaluation_json, evaluation_markdown = save_evaluation_report(
         evaluation_data, output_directory, prefix="prediction_outperform_evaluation"
     )
+    journal.event(
+        "滚动样本外验证",
+        "success" if evaluation.get("ready") else "partial",
+        完成窗口数=sum(item.get("status") == "success" for item in evaluation.get("windows", [])),
+        评估报告=str(evaluation_json),
+    )
     try:
         model, calibration_info = fit_time_calibrated_model(
             dataset, dependencies, FEATURE_COLUMNS_V2, LABEL_COLUMN_V2
         )
     except ValueError as error:
+        journal.event("最终模型训练", "failed", 原因=str(error))
         return {
             "status": "failed",
             "message": f"最终模型训练失败：{error}",
@@ -150,8 +170,16 @@ def train_prediction_v2(project_directory=PROJECT_DIRECTORY, benchmark_name=DEFA
     metadata_file = models_directory / "predict_5d_outperform_benchmark_metadata.json"
     joblib.dump(model, model_file)
     metadata_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    status = "success" if research_ready else "insufficient"
+    journal.event(
+        "最终模型训练",
+        status,
+        滚动验证通过=research_ready,
+        模型文件=str(model_file),
+        元数据文件=str(metadata_file),
+    )
     return {
-        "status": "success" if research_ready else "insufficient",
+        "status": status,
         "message": "v5.1 训练与验证完成。" if research_ready else "训练完成，但研究结果不足，不展示预测概率。",
         "model_file": str(model_file),
         "metadata_file": str(metadata_file),

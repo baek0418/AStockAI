@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ UNIVERSE_DIRECTORY = PROJECT_DIRECTORY / "config" / "universe"
 EASTMONEY_CONSTITUENTS_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 CSI300_BOARD_CODE = "BK0500"
 EXPECTED_CSI300_SIZE = 300
+CONSTITUENTS_PAGE_SIZE = 100
 
 
 def validate_csi300_stocks(stocks):
@@ -36,23 +38,42 @@ def validate_csi300_stocks(stocks):
 
 
 def fetch_csi300_constituents(request_get=requests.get):
-    """读取公开行情源的沪深300列表，并严格校验数量和代码。"""
-    try:
+    """分页读取公开行情源的沪深300列表，并严格校验数量和代码。"""
+    request_params = {
+        "pz": CONSTITUENTS_PAGE_SIZE,
+        "po": 1,
+        "np": 1,
+        "fltt": 2,
+        "invt": 2,
+        "fid": "f3",
+        "fs": f"b:{CSI300_BOARD_CODE}",
+        "fields": "f12,f14",
+    }
+
+    def fetch_page(page_number):
         response = request_get(
             EASTMONEY_CONSTITUENTS_URL,
-            params={
-                "pn": 1, "pz": 500, "po": 1, "np": 1, "fltt": 2, "invt": 2,
-                "fid": "f3", "fs": f"b:{CSI300_BOARD_CODE}", "fields": "f12,f14",
-            },
+            params={"pn": page_number, **request_params},
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=20,
         )
         response.raise_for_status()
         payload = response.json().get("data") or {}
+        rows = payload.get("diff")
+        if not isinstance(rows, list):
+            raise ValueError("沪深300成分股接口未返回有效列表。")
+        return payload.get("total"), rows
+
+    try:
+        total, rows = fetch_page(1)
+        if total != EXPECTED_CSI300_SIZE:
+            raise ValueError("沪深300成分股数量异常，拒绝覆盖已有研究股票池。")
+        for page_number in range(2, math.ceil(total / CONSTITUENTS_PAGE_SIZE) + 1):
+            _, page_rows = fetch_page(page_number)
+            rows.extend(page_rows)
     except (requests.RequestException, ValueError) as error:
         raise ValueError("沪深300成分股下载失败，未改写研究股票池快照。") from error
-    rows = payload.get("diff") or []
-    if payload.get("total") != EXPECTED_CSI300_SIZE or len(rows) != EXPECTED_CSI300_SIZE:
+    if len(rows) != EXPECTED_CSI300_SIZE:
         raise ValueError("沪深300成分股数量异常，拒绝覆盖已有研究股票池。")
     return validate_csi300_stocks([
         {"code": row.get("f12", ""), "name": row.get("f14", "")}

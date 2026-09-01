@@ -10,6 +10,7 @@ from prediction_features import (
     HORIZON_DAYS,
     RETURN_COLUMN,
     build_feature_dataset,
+    get_enabled_research_stock_codes,
     load_history_csv,
 )
 
@@ -65,8 +66,11 @@ def build_feature_dataset_v2(
     """内连接正式股票与基准交易日；不补齐基准缺失日期，也不读取按需目录。"""
     project_directory = Path(project_directory or Path(__file__).parent)
     market_directory = Path(market_directory or project_directory / "data" / "market")
+    allowed_stock_codes = get_enabled_research_stock_codes(project_directory)
     stock_features, skipped_files = build_feature_dataset(
-        data_directory=data_directory, project_directory=project_directory
+        data_directory=data_directory,
+        project_directory=project_directory,
+        allowed_stock_codes=allowed_stock_codes,
     )
     benchmark = load_benchmark_feature_frame(market_directory, benchmark_name)
     dataset = stock_features.merge(

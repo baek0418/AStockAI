@@ -9,6 +9,7 @@ import pandas as pd
 import requests
 
 from daily_signal import create_signal_stock
+from expert_research import build_expert_research_memo, build_price_research_evidence
 from score import calculate_score_dataframe
 from stock_universe import create_market_code, normalize_stock_code
 from update_data import create_history_dataframe, get_stock
@@ -288,6 +289,7 @@ def create_stock_record(stock, history_data, current_score, previous_score=None)
         "risk": current["风险标签"],
         "source": "on_demand",
     }
+    price_evidence = build_price_research_evidence(history)
     return {
         "股票代码": stock["code"],
         "股票名称": stock["name"],
@@ -295,6 +297,10 @@ def create_stock_record(stock, history_data, current_score, previous_score=None)
         "日线数据说明": "指标基于最近一个已下载交易日日线，不代表实时盘中行情。",
         "stock_record": stock_record,
         "daily_signal": signal_stock,
+        "价格研究证据": price_evidence,
+        "专家研究备忘录": build_expert_research_memo(
+            {"当前量化证据": current}, price_evidence
+        ),
     }
 
 

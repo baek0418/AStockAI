@@ -16,6 +16,7 @@ from stock_analysis import (
     create_markdown_content,
     create_evidence_markdown_content,
     create_stock_records,
+    enrich_stock_evidence_with_research,
     find_fuzzy_matches,
     find_latest_snapshot_file,
     find_stock,
@@ -33,11 +34,71 @@ from on_demand_analysis import (
     resolve_code_query,
     resolve_catalog_query,
 )
+from fundamental_data import (
+    build_industry_peer_comparison,
+    build_valuation_observation,
+    collect_fundamental_snapshot,
+    load_fundamental_snapshot,
+    summarize_fundamental_evidence,
+)
+from expert_research import build_expert_research_memo
+from research_dashboard import build_research_dashboard, research_dashboard_source_mtime
+from background_tasks import (
+    get_active_task,
+    list_task_statuses,
+    read_task_log_tail,
+    start_background_task,
+)
 
 
 PROJECT_DIRECTORY = Path(__file__).parent.resolve()
 OUTPUT_DIRECTORY = PROJECT_DIRECTORY / "output"
 WATCHLIST_FILE = PROJECT_DIRECTORY / "watchlist.json"
+FUNDAMENTAL_METRICS = (
+    "营业总收入",
+    "归母净利润",
+    "营业总收入同比增长",
+    "归母净利润同比增长",
+    "扣非净利润同比增长",
+    "净资产收益率(加权)",
+    "销售毛利率",
+    "资产负债率",
+    "每股经营现金流",
+    "每股收益(基本)",
+    "每股净资产",
+)
+
+
+def build_fundamental_display_data(stock_evidence):
+    """把已保存的基本面研究事实整理为页面展示数据，不推导投资结论。"""
+    fundamental = stock_evidence.get("基本面研究证据", {}) if isinstance(stock_evidence, dict) else {}
+    valuation = stock_evidence.get("估值观察", {}) if isinstance(stock_evidence, dict) else {}
+    peer = stock_evidence.get("行业同业比较", {}) if isinstance(stock_evidence, dict) else {}
+    result = {
+        "数据状态": fundamental.get("数据状态", "数据不足：未下载基本面快照。"),
+        "报告期": fundamental.get("报告期", "未提供"),
+        "公告日期": fundamental.get("公告日期", "未提供"),
+        "来源": fundamental.get("来源", "未提供"),
+        "官方核验页": fundamental.get("官方核验页"),
+        "财务指标": [],
+        "公司与行业事实": [],
+        "估值观察": valuation,
+        "同业比较": peer,
+    }
+    if result["数据状态"] != "可用":
+        return result
+
+    metrics = fundamental.get("指标", {})
+    result["财务指标"] = [
+        {"指标": label, "数值": metrics[label], "口径": "来源原始口径"}
+        for label in FUNDAMENTAL_METRICS
+        if metrics.get(label) is not None
+    ]
+    result["公司与行业事实"] = [
+        fact for fact in fundamental.get("事实", [])
+        if str(fact).startswith(("所属行业：", "证监会行业：", "主营业务：", "上市市场：", "实际控制人："))
+    ]
+    return result
 
 
 def cache_data(*args, **kwargs):
@@ -96,6 +157,12 @@ def load_text_cached(text_file, mtime_ns):
 
 
 @cache_data(show_spinner=False)
+def load_research_dashboard_cached(project_directory, source_mtime_ns):
+    """按研究产物的最新修改时间缓存总览；只读取本地 JSON。"""
+    return build_research_dashboard(project_directory)
+
+
+@cache_data(show_spinner=False)
 def load_catalog_cached(catalog_file, mtime_ns):
     """按目录缓存文件修改时间加载本地 A 股名称目录。"""
     return load_catalog(catalog_file)
@@ -122,10 +189,11 @@ def get_stock_evidence(stock_record):
         get_file_mtime_ns(watch_file), market_mtime, get_file_mtime_ns(WATCHLIST_FILE),
     )
     contexts = evidence["量化快照"], evidence["daily_signal"], evidence["watchlist_snapshot"]
-    return build_stock_evidence(
+    stock_evidence = build_stock_evidence(
         stock_record, *contexts,
         {"available": True, "stocks": []}, evidence["市场环境"],
-    ), evidence["市场环境"]
+    )
+    return enrich_stock_evidence_with_research(stock_evidence, PROJECT_DIRECTORY), evidence["市场环境"]
 
 
 def get_signal_stock(daily_signal, stock_record):
@@ -160,6 +228,66 @@ def get_watchlist_rows(watchlist_data):
             }
         )
     return rows
+
+
+def render_fundamental_research(stock_evidence):
+    """渲染本地基本面快照、机械估值观察和有限同业比较。"""
+    display = build_fundamental_display_data(stock_evidence)
+    st.markdown("#### 基本面事实快照（本地）")
+    if display["数据状态"] != "可用":
+        st.info(display["数据状态"])
+        st.caption("可点击页面顶部的“下载/刷新基本面快照”后再查看；本页不会把缺失数据补成结论。")
+        return
+
+    st.caption(f"报告期：{display['报告期']} ｜ 公告日期：{display['公告日期']}")
+    if display["财务指标"]:
+        st.dataframe(display["财务指标"], use_container_width=True, hide_index=True)
+    else:
+        st.info("最新报告未提供可展示的主要财务指标。")
+
+    if display["公司与行业事实"]:
+        with st.expander("公司与行业原始描述", expanded=False):
+            for fact in display["公司与行业事实"]:
+                st.markdown(f"- {fact}")
+
+    valuation = display["估值观察"]
+    st.markdown("**估值观察（机械计算）**")
+    if valuation.get("数据状态") == "可用":
+        columns = st.columns(3)
+        columns[0].metric("本地最新收盘", valuation.get("最新收盘", "数据不足"))
+        columns[1].metric("PB", valuation.get("市净率(PB)") if valuation.get("市净率(PB)") is not None else "数据不足")
+        static_pe = valuation.get("静态市盈率(PE)")
+        columns[2].metric("静态 PE", static_pe if static_pe is not None else "不适用（非年报）")
+        st.caption(valuation.get("说明", "PB/PE 仅是已披露每股指标与本地收盘价的机械比值。"))
+    else:
+        st.caption(valuation.get("数据状态", "数据不足：无法计算估值观察。"))
+
+    peer = display["同业比较"]
+    st.markdown("**同业比较（本地已下载快照）**")
+    if peer.get("数据状态") == "可用":
+        peer_rows = []
+        for label, item in peer.get("指标比较", {}).items():
+            if item.get("数据状态") == "可用":
+                peer_rows.append({
+                    "指标": label,
+                    "本公司": item["本公司"],
+                    "同业中位数": item["同业中位数"],
+                    "排名": f"{item['同业排名']}/{item['有效可比公司数']}",
+                    "比较方向": item["方向"],
+                })
+        st.caption(f"行业：{peer.get('所属行业', '未提供')} ｜ 同报告期本地可比：{peer.get('可比公司数量', 0)} 家")
+        if peer_rows:
+            st.dataframe(peer_rows, use_container_width=True, hide_index=True)
+        else:
+            st.caption("同业快照中没有足够的可比指标。")
+        st.caption(peer.get("说明", "仅使用同一行业、同一报告期的本地快照。"))
+    else:
+        st.caption(peer.get("数据状态", "数据不足：无法进行同业比较。"))
+
+    source_text = f"数据来源：{display['来源']}。"
+    if display["官方核验页"]:
+        source_text += f"请以[巨潮资讯官方定期报告]({display['官方核验页']})复核口径。"
+    st.caption(source_text)
 
 
 def get_report_file(report_date):
@@ -203,7 +331,170 @@ def render_home(quant_snapshot, watchlist_snapshot, daily_report_file):
     )
 
 
-def render_stock_details(stock_record, daily_signal=None, signal_override=None):
+def _format_percent(value):
+    return f"{value * 100:.2f}%" if isinstance(value, (int, float)) and not isinstance(value, bool) else "数据不足"
+
+
+def _format_metric(value, digits=4):
+    return f"{value:.{digits}f}" if isinstance(value, (int, float)) and not isinstance(value, bool) else "数据不足"
+
+
+def render_background_task_status():
+    """展示最近后台任务的持久化状态和有限日志尾部。"""
+    active_task = get_active_task(PROJECT_DIRECTORY)
+    recent_tasks = list_task_statuses(PROJECT_DIRECTORY)
+    if active_task:
+        st.info(
+            f"后台任务运行中：{active_task.get('任务类型')}（{active_task.get('任务编号')}）。"
+            "状态会自动刷新。"
+        )
+    if not recent_tasks:
+        st.caption("尚无后台任务记录。")
+        return
+    latest = recent_tasks[0]
+    latest_state = (latest.get("任务编号"), latest.get("状态"))
+    previous_state = st.session_state.get("last_background_task_state")
+    st.session_state["last_background_task_state"] = latest_state
+    if (
+        previous_state
+        and previous_state[0] == latest_state[0]
+        and previous_state[1] in {"queued", "running"}
+        and latest_state[1] not in {"queued", "running"}
+    ):
+        # 任务结束后完整重跑页面，使总览缓存按新产物的修改时间失效。
+        st.rerun()
+    rows = [
+        {
+            "任务": task.get("任务类型", "未知"),
+            "状态": task.get("状态", "未知"),
+            "开始时间": task.get("开始时间", "未提供"),
+            "结束时间": task.get("结束时间", "运行中"),
+            "说明": task.get("说明", ""),
+        }
+        for task in recent_tasks
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    with st.expander(f"查看最新任务详情：{latest.get('任务编号', '未知')}", expanded=False):
+        if latest.get("步骤"):
+            st.dataframe(latest["步骤"], use_container_width=True, hide_index=True)
+        if latest.get("边界"):
+            st.caption(latest["边界"])
+        log_tail = read_task_log_tail(PROJECT_DIRECTORY, latest)
+        if log_tail:
+            st.code(log_tail, language="text")
+
+
+def render_background_task_controls():
+    """提供显式后台操作；任一任务执行时禁止启动另一个写入任务。"""
+    active_task = get_active_task(PROJECT_DIRECTORY)
+    st.markdown("#### 后台更新与研究任务")
+    st.caption("数据更新会访问腾讯行情源；研究重建只使用本地数据。两类任务均在独立进程中运行。")
+    columns = st.columns(2)
+    if columns[0].button("后台更新本地行情", key="start_data_update", disabled=active_task is not None):
+        result = start_background_task("data_update", PROJECT_DIRECTORY)
+        if result["status"] == "started":
+            st.success(result["message"])
+            st.rerun()
+        else:
+            st.error(result["message"])
+    if columns[1].button("后台重建研究产物", key="start_research_refresh", disabled=active_task is not None):
+        result = start_background_task("research_refresh", PROJECT_DIRECTORY)
+        if result["status"] == "started":
+            st.success(result["message"])
+            st.rerun()
+        else:
+            st.error(result["message"])
+    if active_task:
+        st.caption("为避免行情写入与模型训练读取同一批文件，当前任务结束前不能启动另一任务。")
+
+
+def render_research_dashboard(dashboard):
+    """渲染严格只读的研究产物总览，不把任何历史结果转成交易信号。"""
+    st.header("研究总览")
+    st.caption("默认只读取已有本地报告；数据更新和研究重建只会在明确点击后以后台任务执行。")
+    conclusion = dashboard.get("总览结论", {})
+    st.warning(f"研究展示边界：{conclusion.get('说明', '仅作研究。')}")
+    render_background_task_controls()
+
+    @st.fragment(run_every=3)
+    def task_status_fragment():
+        render_background_task_status()
+
+    task_status_fragment()
+
+    health = dashboard.get("数据健康", {})
+    st.subheader("数据健康")
+    if health.get("状态") == "可用":
+        columns = st.columns(4)
+        columns[0].metric("可训练股票", health.get("可训练股票数", "数据不足"))
+        columns[1].metric("最新日线日期", health.get("最新日线日期", "数据不足"))
+        columns[2].metric("数据问题文件", health.get("数据问题文件数", "数据不足"))
+        columns[3].metric("研究池外文件", health.get("研究池外文件数", "数据不足"))
+        st.caption(health.get("说明", ""))
+        st.caption(health.get("时效说明", ""))
+        with st.expander("查看数据审计明细", expanded=False):
+            st.dataframe(health.get("文件审计", []), use_container_width=True, hide_index=True)
+            if health.get("特征构建跳过文件"):
+                st.write("特征构建跳过文件：")
+                st.dataframe(health["特征构建跳过文件"], use_container_width=True, hide_index=True)
+    else:
+        st.info(health.get("说明", "尚无数据审计报告。"))
+
+    model = dashboard.get("模型验证", {})
+    st.subheader("v5.1 样本外验证")
+    if model.get("状态") == "数据不足":
+        st.info(model.get("说明", "尚无样本外验证报告。"))
+    else:
+        status_message = "技术验证通过" if model.get("技术验证通过") else "未通过技术验证"
+        (st.success if model.get("技术验证通过") else st.warning)(
+            f"{status_message}；概率展示：{'允许' if model.get('允许展示概率') else '不允许'}。"
+        )
+        columns = st.columns(4)
+        columns[0].metric("训练股票", model.get("训练股票数", "数据不足"))
+        columns[1].metric("训练截止日期", model.get("训练截止日期", "数据不足"))
+        columns[2].metric("完成/校准窗口", f"{model.get('完成窗口数', 0)}/{model.get('完成校准窗口数', 0)}")
+        metrics = model.get("样本外指标", {})
+        baseline = model.get("朴素概率基线", {})
+        columns[3].metric("样本外 ROC-AUC", _format_metric(metrics.get("roc_auc")))
+        st.caption(model.get("展示边界", "研究结果保持隔离。"))
+        metric_rows = [
+            {"指标": "Brier Score", "模型": _format_metric(metrics.get("brier_score")), "朴素基线": _format_metric(baseline.get("brier_score"))},
+            {"指标": "Log Loss", "模型": _format_metric(metrics.get("log_loss")), "朴素基线": _format_metric(baseline.get("log_loss"))},
+            {"指标": "ROC-AUC", "模型": _format_metric(metrics.get("roc_auc")), "朴素基线": _format_metric(baseline.get("roc_auc"))},
+            {"指标": "准确率", "模型": _format_metric(metrics.get("accuracy")), "朴素基线": _format_metric(baseline.get("accuracy"))},
+        ]
+        st.dataframe(metric_rows, use_container_width=True, hide_index=True)
+        with st.expander("查看验证风险提示", expanded=False):
+            for risk in model.get("风险提示", []):
+                st.markdown(f"- {risk}")
+
+    portfolio = dashboard.get("组合回测", {})
+    st.subheader("严格滚动样本外组合回测")
+    if portfolio.get("状态") != "可用":
+        st.info(portfolio.get("说明", "尚无严格滚动样本外组合回测报告。"))
+    else:
+        statistics = portfolio.get("统计", {})
+        columns = st.columns(4)
+        columns[0].metric("策略累计收益", _format_percent(statistics.get("累计收益率")))
+        columns[1].metric("相对基准超额", _format_percent(statistics.get("超额累计收益率")))
+        columns[2].metric("最大回撤", _format_percent(statistics.get("最大回撤")))
+        columns[3].metric("交易笔数", statistics.get("交易笔数", "数据不足"))
+        st.caption(f"策略：{portfolio.get('策略', '未提供')} ｜ 基准：{portfolio.get('市场基准', '未提供')}。{portfolio.get('说明', '')}")
+        with st.expander("查看组合回测诊断", expanded=False):
+            st.json({
+                "参数": portfolio.get("参数", {}),
+                "信号覆盖诊断": portfolio.get("信号覆盖诊断", {}),
+                "跳过文件": portfolio.get("跳过文件", []),
+            })
+
+    st.caption("研究来源：" + " ｜ ".join(
+        path for path in (
+            health.get("报告文件"), model.get("报告文件"), portfolio.get("报告文件")
+        ) if path
+    ))
+
+
+def render_stock_details(stock_record, daily_signal=None, signal_override=None, research_override=None):
     """展示单股票已有事实、日间变化、规则结论和按需 AI 解释。"""
     fact_snapshot = build_fact_snapshot(stock_record)
     signal_stock = signal_override or get_signal_stock(daily_signal, stock_record)
@@ -217,6 +508,14 @@ def render_stock_details(stock_record, daily_signal=None, signal_override=None):
     metrics[3].metric("MA20", fact_snapshot["MA20"])
     metrics[4].metric("MACD", fact_snapshot["MACD"])
     st.write(f"趋势：{fact_snapshot['趋势']} ｜ 建议：{fact_snapshot['建议']} ｜ 风险标签：{fact_snapshot['风险标签']}")
+    if st.button("下载/刷新基本面快照", key=f"fundamentals_{fact_snapshot['股票代码']}"):
+        with st.spinner("正在下载最近报告期基本面事实…"):
+            result = collect_fundamental_snapshot(fact_snapshot["股票代码"])
+        if result["status"] == "success":
+            st.success(result["message"])
+            st.rerun()
+        else:
+            st.error(result["message"])
 
     st.markdown("#### 今日变化")
     if signal_stock:
@@ -239,6 +538,8 @@ def render_stock_details(stock_record, daily_signal=None, signal_override=None):
     st.write(rule_summary)
 
     stock_evidence, market_context = get_stock_evidence(stock_record)
+    if isinstance(research_override, dict):
+        stock_evidence = {**stock_evidence, **research_override}
     st.markdown("#### 证据解读")
     st.write(f"市场数据截至：{market_context.get('数据截至日期', '数据不足')}")
     st.markdown("偏强证据：")
@@ -247,6 +548,17 @@ def render_stock_details(stock_record, daily_signal=None, signal_override=None):
     st.markdown("谨慎证据：")
     for item in stock_evidence.get("谨慎证据", ["数据不足"]):
         st.markdown(f"- {item}")
+
+    render_fundamental_research(stock_evidence)
+
+    memo = stock_evidence.get("专家研究备忘录", {})
+    st.markdown("#### 专家研究框架（证据化）")
+    st.write(memo.get("核心研究论点", "数据不足"))
+    for heading in ("支持证据", "相反证据与风险", "待验证或证伪"):
+        st.markdown(f"**{heading}**")
+        for item in memo.get(heading, ["数据不足"]):
+            st.markdown(f"- {item}")
+    st.caption(memo.get("基本面与行业证据", "数据不足"))
 
     ai_key = f"ai_markdown_{fact_snapshot['股票代码'] or fact_snapshot['股票名称']}"
     if st.button("生成/刷新 AI 分析", key=f"generate_{ai_key}"):
@@ -271,7 +583,32 @@ def render_on_demand_analysis(analysis):
         f"行情来源：{analysis.get('行情来源', '未记录')} ｜ "
         f"名称目录来源：{analysis.get('名称目录来源', '未记录')}"
     )
-    render_stock_details(stock_record, signal_override=analysis.get("daily_signal"))
+    fundamental_snapshot = load_fundamental_snapshot(stock_record.get("code", ""))
+    fundamental_evidence = summarize_fundamental_evidence(fundamental_snapshot)
+    price_evidence = analysis.get("价格研究证据", {})
+    fundamental_evidence["价格日期"] = price_evidence.get("数据截至日期", "数据不足")
+    valuation_evidence = build_valuation_observation(
+        fundamental_evidence, price_evidence.get("最新收盘")
+    )
+    peer_comparison = build_industry_peer_comparison(fundamental_snapshot)
+    memo = build_expert_research_memo(
+        {"当前量化证据": analysis.get("daily_signal", {}).get("当前指标", {})},
+        price_evidence,
+        fundamental_evidence,
+        valuation_evidence,
+        peer_comparison,
+    )
+    render_stock_details(
+        stock_record,
+        signal_override=analysis.get("daily_signal"),
+        research_override={
+            "价格研究证据": price_evidence,
+            "基本面研究证据": fundamental_evidence,
+            "估值观察": valuation_evidence,
+            "行业同业比较": peer_comparison,
+            "专家研究备忘录": memo,
+        },
+    )
     if st.button("加入关注列表", key=f"watch_{stock_record['code']}"):
         result = add_stock_to_watchlist(stock_record)
         if result["status"] == "success":
@@ -395,11 +732,15 @@ def main():
 
     st.set_page_config(page_title="AStockAI 本地查询", page_icon="📈", layout="wide")
     st.title("AStockAI 本地 Web 查询窗口")
-    st.caption("已有快照只读展示；非快照股票仅在明确点击后下载单股日线。不会自动发送邮件或运行回测。 ")
+    st.caption("已有快照只读展示；非快照股票仅在明确点击后下载单股日线。不会自动发送邮件或运行回测；研究总览仅在显式刷新后重建本地研究产物。")
+    dashboard = load_research_dashboard_cached(
+        str(PROJECT_DIRECTORY), research_dashboard_source_mtime(PROJECT_DIRECTORY)
+    )
 
     quant_file = find_latest_snapshot_file(OUTPUT_DIRECTORY, "quant_snapshot")
     if quant_file is None:
-        st.error("未找到 quant_snapshot。请先运行量化研究和日报流程。")
+        st.warning("未找到 quant_snapshot；单股票与日报页面暂不可用，但仍可查看已有研究总览。")
+        render_research_dashboard(dashboard)
         return
     watch_snapshot_file = find_latest_snapshot_file(OUTPUT_DIRECTORY, "watchlist_snapshot")
     if watch_snapshot_file is None:
@@ -434,9 +775,11 @@ def main():
         st.warning(f"daily_signal 不可用：{error}")
         daily_signal = None
 
-    home_tab, query_tab, watchlist_tab = st.tabs(["首页", "单股票查询", "关注列表"])
+    home_tab, research_tab, query_tab, watchlist_tab = st.tabs(["首页", "研究总览", "单股票查询", "关注列表"])
     with home_tab:
         render_home(quant_snapshot, watchlist_snapshot, get_report_file(report_date))
+    with research_tab:
+        render_research_dashboard(dashboard)
     with query_tab:
         render_stock_query(stock_records, daily_signal)
     with watchlist_tab:

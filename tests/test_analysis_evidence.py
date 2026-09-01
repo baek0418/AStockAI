@@ -39,8 +39,10 @@ class AnalysisEvidenceTests(unittest.TestCase):
         self.root = Path(self.temporary_directory.name)
         self.output = self.root / "output"
         self.market = self.root / "data" / "market"
+        self.fundamentals = self.root / "data" / "fundamentals"
         self.output.mkdir(parents=True)
         self.market.mkdir(parents=True)
+        self.fundamentals.mkdir(parents=True)
         self.watchlist = self.root / "watchlist.json"
         write_json(self.watchlist, {"stocks": [{"code": "000001", "name": "测试股", "priority": 5, "enable": True}]})
         write_json(
@@ -60,6 +62,21 @@ class AnalysisEvidenceTests(unittest.TestCase):
             }]},
         )
         write_json(self.output / "watchlist_snapshot_2026-07-24.json", {"stocks": []})
+        write_json(
+            self.fundamentals / "000001_fundamentals.json",
+            {
+                "数据状态": "可用", "股票代码": "000001",
+                "最新报告": {"报告期": "2026-06-30", "公告日期": "2026-08-20", "指标": {
+                    "营业总收入同比增长": 10.0, "归母净利润同比增长": 8.0,
+                    "净资产收益率(加权)": 9.0, "资产负债率": 40.0,
+                    "每股净资产": 10.0, "每股收益(基本)": 1.0,
+                }},
+                "公司与行业画像": {"数据状态": "可用", "字段": {
+                    "所属行业": "测试行业", "主营业务": "测试主营业务",
+                }},
+                "来源": "测试来源", "官方核验页": "https://www.cninfo.com.cn/",
+            },
+        )
         write_market_csv(self.market / "沪深300_sh000300.csv", list(range(100, 125)))
         write_market_csv(self.market / "中证1000_sh000852.csv", list(range(200, 225)))
 
@@ -89,6 +106,13 @@ class AnalysisEvidenceTests(unittest.TestCase):
         self.assertIn("MA5 高于 MA20", " ".join(stock["偏强证据"]))
         daily_markdown = create_evidence_report_content(evidence, "AI增强分析暂不可用。")
         stock_markdown = create_evidence_markdown_content(stock, evidence["市场环境"], "AI增强分析暂不可用。")
+        email_body = daily_markdown.split("<!-- EMAIL_BODY_END -->", maxsplit=1)[0]
+        self.assertIn("## 今天先看市场", email_body)
+        self.assertIn("## 今天最值得关注的公司", email_body)
+        self.assertIn("结论：", email_body)
+        self.assertNotIn("## 研究控制面板", email_body)
+        self.assertNotIn("## 全量关注速览", email_body)
+        self.assertNotIn("MACD", email_body)
         self.assertIn("## 市场环境", daily_markdown)
         self.assertIn("## 今日摘要", daily_markdown)
         self.assertIn("## 研究控制面板", daily_markdown)
@@ -96,19 +120,25 @@ class AnalysisEvidenceTests(unittest.TestCase):
         self.assertIn("## 今日重点与风险", daily_markdown)
         self.assertIn("## 20 日研究跟踪优先级", daily_markdown)
         self.assertIn("## 今日重点", daily_markdown)
+        self.assertIn("## 重点股基本面与同业核对", daily_markdown)
+        self.assertIn("测试主营业务", daily_markdown)
+        self.assertIn("营业总收入同比增长 10.00%", daily_markdown)
+        self.assertIn("静态PE 不适用（最新为非年报", daily_markdown)
+        self.assertNotIn("静态PE None", daily_markdown)
         self.assertIn("## 全量关注速览", daily_markdown)
         self.assertIn("12.34", daily_markdown)
         self.assertIn("## 今日重点变化", daily_markdown)
         self.assertIn("## 重点关注股票深度解读", daily_markdown)
         self.assertIn("收盘价", daily_markdown)
-        self.assertIn("系统评分 +12", daily_markdown)
-        self.assertIn("趋势 / 动能", daily_markdown)
+        self.assertIn("观察评分 +12", daily_markdown)
+        self.assertIn("近期价格状态", daily_markdown)
         self.assertIn("风险提示", daily_markdown)
         self.assertNotIn("出现变化，等待验证", daily_markdown)
         reader_content = daily_markdown.split("## 名词小抄", maxsplit=1)[0]
-        self.assertIn("短期走势", reader_content)
+        self.assertIn("近 5 日平均价", reader_content)
         self.assertNotIn("MACD", reader_content)
         self.assertNotIn("RSI", reader_content)
+        self.assertNotIn("短期动能", reader_content)
         self.assertIn("## 数据状态", stock_markdown)
         self.assertIn("## 偏强证据", stock_markdown)
         self.assertNotIn("未来 5 日上涨概率", daily_markdown + stock_markdown)

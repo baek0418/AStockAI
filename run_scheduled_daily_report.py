@@ -80,6 +80,7 @@ def get_trading_day_status(target_date, holiday_calendar):
 def run_scheduled_report(
     force=False,
     dry_run=False,
+    refresh_fundamentals=True,
     now=None,
     runner=subprocess.run,
     project_directory=PROJECT_DIRECTORY,
@@ -122,6 +123,21 @@ def run_scheduled_report(
         logger.error("未找到 %s，自动任务未执行。", python_executable)
         return 1
 
+    if refresh_fundamentals:
+        fundamentals_command = [
+            str(python_executable), "fundamental_data.py", "--watchlist", "--max-age-days", "7"
+        ]
+        logger.info("北京时间 %s：检查启用关注股的基本面快照时效。", today)
+        try:
+            fundamentals_result = runner(fundamentals_command, cwd=project_directory, check=False)
+        except OSError:
+            logger.exception("无法启动基本面快照刷新；将继续生成日报。")
+        else:
+            if fundamentals_result.returncode != 0:
+                logger.warning(
+                    "基本面快照刷新退出码为 %s；保留已有快照并继续生成日报。",
+                    fundamentals_result.returncode,
+                )
     command = [str(python_executable), "pipeline.py", "--send-email"]
     logger.info("北京时间 %s：开始执行交易日日报任务。", today)
     try:
@@ -143,8 +159,15 @@ def main():
     parser = argparse.ArgumentParser(description="AStockAI launchd 交易日日报任务。")
     parser.add_argument("--force", action="store_true", help="忽略交易日判断，立即执行流水线。")
     parser.add_argument("--dry-run", action="store_true", help="仅检查配置与交易日，不运行流水线。")
+    parser.add_argument(
+        "--skip-fundamental-refresh", action="store_true", help="本次跳过基本面快照时效检查。"
+    )
     arguments = parser.parse_args()
-    return run_scheduled_report(force=arguments.force, dry_run=arguments.dry_run)
+    return run_scheduled_report(
+        force=arguments.force,
+        dry_run=arguments.dry_run,
+        refresh_fundamentals=not arguments.skip_fundamental_refresh,
+    )
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ LABEL_COLUMN = "target_up_5d"
 RETURN_COLUMN = "future_5d_return"
 HORIZON_DAYS = 5
 REQUIRED_COLUMNS = {"日期", "收盘", "成交量"}
+RESEARCH_POOL_EXCLUSION_REASON = "不在当前启用的研究股票池快照中。"
 
 
 def load_history_csv(history_file):
@@ -103,20 +104,37 @@ def create_stock_code_lookup(project_directory):
         return {}
 
 
-def build_feature_dataset(data_directory=None, project_directory=None):
-    """仅读取 data 根目录的 CSV，绝不递归读取 data/on_demand。"""
+def get_enabled_research_stock_codes(project_directory):
+    """返回已启用研究池代码；未启用时返回 None，不改变 v5.0 的数据范围。"""
+    from research_universe import load_research_universe
+
+    stocks = load_research_universe(Path(project_directory) / "config" / "research_universe.json")
+    return {stock["code"] for stock in stocks} if stocks else None
+
+
+def build_feature_dataset(data_directory=None, project_directory=None, allowed_stock_codes=None):
+    """读取正式历史 CSV；可按研究股票池代码严格过滤，绝不读取按需缓存目录。"""
     project_directory = Path(project_directory or Path(__file__).parent)
     data_directory = Path(data_directory or project_directory / "data")
     code_lookup = create_stock_code_lookup(project_directory)
+    allowed_stock_codes = (
+        {str(code).strip() for code in allowed_stock_codes}
+        if allowed_stock_codes is not None
+        else None
+    )
     frames = []
     skipped_files = []
     for history_file in sorted(data_directory.glob("*.csv")):
         stock_name = history_file.stem.replace("历史", "")
+        stock_code = code_lookup.get(stock_name, "")
+        if allowed_stock_codes is not None and stock_code not in allowed_stock_codes:
+            skipped_files.append({"file": history_file.name, "reason": RESEARCH_POOL_EXCLUSION_REASON})
+            continue
         try:
             history = load_history_csv(history_file)
             if len(history) <= HORIZON_DAYS:
                 raise ValueError("历史日线不足。")
-            frames.append(build_stock_feature_frame(history, stock_name, code_lookup.get(stock_name, "")))
+            frames.append(build_stock_feature_frame(history, stock_name, stock_code))
         except (OSError, ValueError, pd.errors.ParserError) as error:
             skipped_files.append({"file": history_file.name, "reason": str(error)})
     if not frames:
