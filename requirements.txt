@@ -1,8 +1,5 @@
-pandas
-easy-tdx==1.20.6
+pandas>=2.0,<3
 requests
-ta
-matplotlib
 python-dotenv
 streamlit
 scikit-learn

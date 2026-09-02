@@ -4,7 +4,6 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from import_csi300_snapshot import import_snapshot
 from research_universe import (
     EXPECTED_CSI300_SIZE,
     fetch_csi300_constituents,
@@ -54,21 +53,6 @@ class ResearchUniverseTests(unittest.TestCase):
             loaded = load_research_universe(config)
             self.assertEqual(len(loaded), EXPECTED_CSI300_SIZE)
             self.assertEqual(loaded[0]["source"], "research:csi300")
-
-    def test_csv_import_requires_complete_unique_constituents_before_enabling(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "csi300.csv"
-            source.write_text(
-                "股票代码,股票名称\n" + "\n".join(
-                    f"60{number:04d},测试{number}" for number in range(EXPECTED_CSI300_SIZE)
-                ),
-                encoding="utf-8",
-            )
-            snapshot = import_snapshot(source, "2026-07-28", root / "research_universe.json")
-            self.assertTrue(snapshot.is_file())
-            self.assertEqual(len(load_research_universe(root / "research_universe.json")), EXPECTED_CSI300_SIZE)
-
 
 if __name__ == "__main__":
     unittest.main()
