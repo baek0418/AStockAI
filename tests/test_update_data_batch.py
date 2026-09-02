@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from market_data_sources import MarketDataFetchResult
-from update_data import run_update_data
+from astock_core.data.market_data_sources import MarketDataFetchResult
+from astock_core.data.update_data import run_update_data
 
 
 def make_result(source="主源", fallback=False):

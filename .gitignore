@@ -10,11 +10,11 @@ __pycache__/
 .pytest_cache/
 
 # Local application state, reports, and research artifacts
-logs/
-output/
-data/
-models/
-dist/
+/logs/
+/output/
+/data/
+/models/
+/dist/
 watchlist.json
 watchlist.json.bak
 equity_curve.csv

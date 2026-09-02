@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from oos_portfolio_research import PROBABILITY_COLUMN, create_execution_signal_panel
+from astock_core.research.oos_portfolio_research import PROBABILITY_COLUMN, create_execution_signal_panel
 
 
 class OosPortfolioResearchTests(unittest.TestCase):

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pandas as pd
 import requests
 
-from on_demand_analysis import (
+from astock_core.analysis.on_demand_analysis import (
     add_stock_to_watchlist,
     analyze_on_demand_stock,
     get_history_file,
@@ -17,7 +17,7 @@ from on_demand_analysis import (
     resolve_code_query,
     resolve_catalog_query,
 )
-from research_data import collect_stock_snapshots
+from astock_core.research.research_data import collect_stock_snapshots
 
 
 def make_raw_history(days=35):
@@ -107,7 +107,7 @@ class OnDemandAnalysisTests(unittest.TestCase):
             self.assertEqual(headers["User-Agent"], "Mozilla/5.0")
             return FakeResponse(pages[params["pn"]])
 
-        with patch("on_demand_analysis.CATALOG_PAGE_SIZE", 2):
+        with patch("astock_core.analysis.on_demand_analysis.CATALOG_PAGE_SIZE", 2):
             result = refresh_catalog(
                 request_get=request_get,
                 catalog_file=self.catalog_file,

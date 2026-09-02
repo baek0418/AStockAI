@@ -3,7 +3,7 @@ from datetime import date
 
 import pandas as pd
 
-from market_data_sources import (
+from astock_core.data.market_data_sources import (
     BaoStockRawDailySource,
     MarketDataSourceError,
     RetryPolicy,

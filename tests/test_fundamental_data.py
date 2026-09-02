@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-from fundamental_data import (
+from astock_core.analysis.fundamental_data import (
     build_valuation_observation,
     build_industry_peer_comparison,
     collect_fundamental_snapshot,

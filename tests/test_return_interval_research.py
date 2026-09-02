@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from return_interval_research import (
+from astock_core.research.return_interval_research import (
     TARGET_COVERAGE,
     _cqr_scores,
     _interval_metrics,
@@ -18,7 +18,7 @@ from return_interval_research import (
     evaluate_interval_windows,
     select_interval_method,
 )
-from prediction_features import FEATURE_COLUMNS, RETURN_COLUMN
+from astock_core.research.prediction_features import FEATURE_COLUMNS, RETURN_COLUMN
 
 
 class ReturnIntervalResearchTests(unittest.TestCase):

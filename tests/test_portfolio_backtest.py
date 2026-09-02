@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from portfolio_backtest import PortfolioConfig, calculate_market_exposure, run_portfolio_backtest
+from astock_core.portfolio.portfolio_backtest import PortfolioConfig, calculate_market_exposure, run_portfolio_backtest
 
 
 def make_panel(rows):

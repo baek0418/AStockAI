@@ -30,8 +30,8 @@
 ## 运行
 
 ```bash
-.venv/bin/python raw_interval_data.py
-.venv/bin/python return_interval_research.py --data-directory data/raw_interval --data-label raw
+.venv/bin/python -m astock_core.data.raw_interval_data
+.venv/bin/python -m astock_core.research.return_interval_research --data-directory data/raw_interval --data-label raw
 ```
 
 原始快照应先完整保存并检查来源记录，再运行区间实验。两条命令都不会发送邮件、改写日报或创建任何交易指令。

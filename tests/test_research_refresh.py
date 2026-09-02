@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from research_refresh import refresh_research_artifacts
+from astock_core.research.research_refresh import refresh_research_artifacts
 
 
 class ResearchRefreshTests(unittest.TestCase):
@@ -26,10 +26,10 @@ class ResearchRefreshTests(unittest.TestCase):
             calls.append(("portfolio", project))
             return {"status": "success", "message": "回测完成"}
 
-        with patch("research_refresh.run_audit", audit), \
-             patch("research_refresh.train_prediction_v2", train), \
-             patch("research_refresh.create_comparison", compare), \
-             patch("research_refresh.run_oos_portfolio_research", portfolio):
+        with patch("astock_core.research.research_refresh.run_audit", audit), \
+             patch("astock_core.research.research_refresh.train_prediction_v2", train), \
+             patch("astock_core.research.research_refresh.create_comparison", compare), \
+             patch("astock_core.research.research_refresh.run_oos_portfolio_research", portfolio):
             result = refresh_research_artifacts("/tmp/research-project")
 
         self.assertEqual([name for name, _ in calls], ["audit", "train", "compare", "portfolio"])
@@ -38,10 +38,10 @@ class ResearchRefreshTests(unittest.TestCase):
         self.assertIn("不下载行情", result["边界"])
 
     def test_insufficient_or_failed_step_is_reported_without_skipping_later_steps(self):
-        with patch("research_refresh.run_audit", return_value=({}, "audit.json", "audit.md")), \
-             patch("research_refresh.train_prediction_v2", return_value={"status": "insufficient", "message": "样本不足"}), \
-             patch("research_refresh.create_comparison", return_value=({}, "comparison.json", "comparison.md")), \
-             patch("research_refresh.run_oos_portfolio_research", side_effect=ValueError("回测数据不足")):
+        with patch("astock_core.research.research_refresh.run_audit", return_value=({}, "audit.json", "audit.md")), \
+             patch("astock_core.research.research_refresh.train_prediction_v2", return_value={"status": "insufficient", "message": "样本不足"}), \
+             patch("astock_core.research.research_refresh.create_comparison", return_value=({}, "comparison.json", "comparison.md")), \
+             patch("astock_core.research.research_refresh.run_oos_portfolio_research", side_effect=ValueError("回测数据不足")):
             result = refresh_research_artifacts("/tmp/research-project")
 
         self.assertEqual(result["状态"], "failed")

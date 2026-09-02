@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from email_report import extract_email_content, render_report_html, send_daily_report
+from astock_core.reporting.email_report import extract_email_content, render_report_html, send_daily_report
 
 
 class FakeSMTP:

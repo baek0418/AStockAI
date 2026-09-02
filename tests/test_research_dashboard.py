@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from research_dashboard import (
+from astock_core.research.research_dashboard import (
     build_research_dashboard,
     build_research_workbench_summary,
     build_user_system_status,

@@ -9,24 +9,24 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from prediction_benchmark_data import (
+from astock_core.data.prediction_benchmark_data import (
     BENCHMARKS,
     extract_index_day_rows,
     normalize_index_dataframe,
     download_benchmarks,
 )
-from prediction_data_audit import audit_data
-from prediction_evaluation import create_evaluation_data
-from prediction_features import HORIZON_DAYS
-from prediction_features_v2 import (
+from astock_core.research.prediction_data_audit import audit_data
+from astock_core.research.prediction_evaluation import create_evaluation_data
+from astock_core.research.prediction_features import HORIZON_DAYS
+from astock_core.research.prediction_features_v2 import (
     FEATURE_COLUMNS_V2,
     LABEL_COLUMN_V2,
     build_feature_dataset_v2,
     get_labeled_dataset_v2,
 )
-from prediction_model import calculate_probability_bins, evaluate_rolling_windows
-from predict_outperformance import predict_outperformance
-from update_data import get_stock
+from astock_core.research.prediction_model import calculate_probability_bins, evaluate_rolling_windows
+from astock_core.research.predict_outperformance import predict_outperformance
+from astock_core.data.update_data import get_stock
 
 
 def make_history(days=100, start="2025-01-01", base=10):
@@ -152,7 +152,7 @@ class PredictionV51Tests(unittest.TestCase):
             def json(self):
                 return {"data": {"sz000001": {"qfqday": [["2025-01-02", "1", "2", "3", "0.5", "100"]]}}}
 
-        with patch("update_data.requests.get", return_value=FakeResponse()):
+        with patch("astock_core.data.update_data.requests.get", return_value=FakeResponse()):
             rows = get_stock("sz000001")
         self.assertEqual(rows[0][2], "2")
 
@@ -164,7 +164,7 @@ class PredictionV51Tests(unittest.TestCase):
             def json(self):
                 return {"data": {"sh601399": {"qfqday": [], "day": [["2025-01-02", "1", "2", "3", "0.5", "100"]]}}}
 
-        with patch("update_data.requests.get", return_value=FakeResponse()):
+        with patch("astock_core.data.update_data.requests.get", return_value=FakeResponse()):
             rows = get_stock("sh601399")
         self.assertEqual(rows[0][2], "2")
 

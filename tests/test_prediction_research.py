@@ -8,14 +8,14 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from predict_probability import predict_probability
-from prediction_features import (
+from astock_core.research.predict_probability import predict_probability
+from astock_core.research.prediction_features import (
     FEATURE_COLUMNS,
     HORIZON_DAYS,
     build_feature_dataset,
     build_stock_feature_frame,
 )
-from prediction_model import GAP_DAYS, create_rolling_windows, split_by_window
+from astock_core.research.prediction_model import GAP_DAYS, create_rolling_windows, split_by_window
 
 
 def make_history(days=100, start="2025-01-01"):
@@ -69,7 +69,7 @@ class PredictionFeatureTests(unittest.TestCase):
             make_history(100).to_csv(data_directory / "研究池外历史.csv", index=False)
 
             with patch(
-                "prediction_features.create_stock_code_lookup",
+                "astock_core.research.prediction_features.create_stock_code_lookup",
                 return_value={"研究池内": "000001", "研究池外": "000002"},
             ):
                 dataset, skipped = build_feature_dataset(

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from background_tasks import (
+from astock_core.runtime.background_tasks import (
     get_active_task,
     read_task_log_tail,
     run_background_task,
@@ -38,19 +38,19 @@ class BackgroundTaskTests(unittest.TestCase):
             self.assertEqual(task["进程ID"], 43210)
             self.assertEqual(calls[0][0][0][1:3], ["background_task_runner.py", "research_refresh"])
             self.assertTrue(calls[0][1]["start_new_session"])
-            with patch("background_tasks._pid_is_running", return_value=True):
+            with patch("astock_core.runtime.background_tasks._pid_is_running", return_value=True):
                 self.assertEqual(get_active_task(root)["任务编号"], task["任务编号"])
 
     def test_data_update_records_each_step_without_running_research(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             task_id = "data-task"
-            with patch("background_tasks.run_update_data", return_value={"status": "partial", "message": "部分股票失败"}), \
-                 patch("background_tasks.download_benchmarks", return_value=[
+            with patch("astock_core.runtime.background_tasks.run_update_data", return_value={"status": "partial", "message": "部分股票失败"}), \
+                 patch("astock_core.runtime.background_tasks.download_benchmarks", return_value=[
                      {"名称": "沪深300", "status": "success"},
                      {"名称": "中证1000", "status": "success"},
                  ]), \
-                 patch("background_tasks.refresh_research_artifacts") as refresh:
+                 patch("astock_core.runtime.background_tasks.refresh_research_artifacts") as refresh:
                 result = run_background_task("data_update", task_id, root)
 
             self.assertEqual(result["状态"], "partial")
@@ -64,7 +64,7 @@ class BackgroundTaskTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             task_id = "research-task"
-            with patch("background_tasks.refresh_research_artifacts", return_value={
+            with patch("astock_core.runtime.background_tasks.refresh_research_artifacts", return_value={
                 "步骤": [
                     {"步骤": "数据审计", "状态": "success", "说明": "完成", "耗时秒": 0.1},
                     {"步骤": "训练", "状态": "insufficient", "说明": "样本不足", "耗时秒": 0.2},

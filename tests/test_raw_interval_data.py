@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from market_data_sources import MarketDataFetchResult
-from raw_interval_data import snapshot_raw_interval_data
+from astock_core.data.market_data_sources import MarketDataFetchResult
+from astock_core.data.raw_interval_data import snapshot_raw_interval_data
 
 
 def make_result(market_code, retry_policy=None, pacer=None):

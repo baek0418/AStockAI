@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from portfolio_management import (
+from astock_core.portfolio.portfolio_management import (
     build_investment_review,
     build_portfolio_rows,
     load_portfolio,

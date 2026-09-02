@@ -9,14 +9,14 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from daily_report import (
+from astock_core.reporting.daily_report import (
     AI_FALLBACK_TEXT,
     apply_daily_signal,
     create_watchlist_section,
     generate_ai_summary,
 )
-from daily_signal import run_daily_signal
-from stock_analysis import build_ai_summary, create_markdown_content
+from astock_core.reporting.daily_signal import run_daily_signal
+from astock_core.analysis.stock_analysis import build_ai_summary, create_markdown_content
 
 
 def write_json(path, data):
@@ -139,7 +139,7 @@ class DailySignalTests(unittest.TestCase):
         self.assertIn("Score：10", report_section)
 
     def test_ai_calls_use_shared_prompt_and_required_options(self):
-        with patch("daily_report.call_ai_model", return_value="说明") as daily_call:
+        with patch("astock_core.reporting.daily_report.call_ai_model", return_value="说明") as daily_call:
             result = generate_ai_summary({}, [], {"stocks": []})
         self.assertEqual(result, "说明")
         self.assertEqual(daily_call.call_args.kwargs["temperature"], 0.2)
@@ -147,7 +147,7 @@ class DailySignalTests(unittest.TestCase):
         self.assertIn("量化研究", daily_call.call_args.kwargs["system_prompt"])
 
         facts = {"股票代码": "000001", "股票名称": "测试", "别名": "", "优先级": 1, "标签": [], "备注": "", "持仓成本": None, "目标价": None, "综合评分": 70, "建议": "重点观察", "趋势": "均线多头", "RSI": 60, "MA5": 11, "MA20": 10, "MACD": 0.2, "风险标签": "正常", "数据来源": "quant"}
-        with patch("stock_analysis.call_ai_model", return_value="说明") as stock_call:
+        with patch("astock_core.analysis.stock_analysis.call_ai_model", return_value="说明") as stock_call:
             self.assertEqual(build_ai_summary(facts), "说明")
         self.assertEqual(stock_call.call_args.kwargs["temperature"], 0.2)
         self.assertEqual(stock_call.call_args.kwargs["max_tokens"], 800)

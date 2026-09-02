@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from research_universe import (
+from astock_core.research.research_universe import (
     EXPECTED_CSI300_SIZE,
     fetch_csi300_constituents,
     load_research_universe,

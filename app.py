@@ -9,7 +9,7 @@ try:
 except ModuleNotFoundError:  # 允许在未安装 Streamlit 的测试环境导入数据辅助函数。
     st = None
 
-from stock_analysis import (
+from astock_core.analysis.stock_analysis import (
     build_ai_summary,
     build_fact_snapshot,
     build_rule_summary,
@@ -23,8 +23,8 @@ from stock_analysis import (
     load_quant_snapshot,
     load_watchlist_snapshot,
 )
-from analysis_evidence import build_report_evidence, build_stock_evidence
-from on_demand_analysis import (
+from astock_core.analysis.analysis_evidence import build_report_evidence, build_stock_evidence
+from astock_core.analysis.on_demand_analysis import (
     CATALOG_FILE,
     add_stock_to_watchlist,
     analyze_on_demand_stock,
@@ -34,27 +34,27 @@ from on_demand_analysis import (
     resolve_code_query,
     resolve_catalog_query,
 )
-from fundamental_data import (
+from astock_core.analysis.fundamental_data import (
     build_industry_peer_comparison,
     build_valuation_observation,
     collect_fundamental_snapshot,
     load_fundamental_snapshot,
     summarize_fundamental_evidence,
 )
-from expert_research import build_expert_research_memo
-from research_dashboard import (
+from astock_core.analysis.expert_research import build_expert_research_memo
+from astock_core.research.research_dashboard import (
     build_research_dashboard,
     build_research_workbench_summary,
     build_user_system_status,
     research_dashboard_source_mtime,
 )
-from background_tasks import (
+from astock_core.runtime.background_tasks import (
     get_active_task,
     list_task_statuses,
     read_task_log_tail,
     start_background_task,
 )
-from portfolio_management import (
+from astock_core.portfolio.portfolio_management import (
     build_investment_review,
     build_portfolio_rows,
     load_portfolio,
@@ -64,13 +64,28 @@ from portfolio_management import (
     upsert_cash,
     upsert_holding,
 )
-from five_day_risk_range import build_five_day_risk_range
+from astock_core.analysis.five_day_risk_range import build_five_day_risk_range
+from astock_core.strategies.afternoon_momentum import (
+    STRATEGY_ID,
+    load_latest_strategy_run,
+    run_afternoon_momentum_screen,
+    save_strategy_run,
+    strategy_catalog,
+)
+from astock_core.simulator.paper_portfolio import (
+    create_snapshot_buy,
+    load_simulator,
+    save_simulator,
+    summarize_simulator,
+    upsert_simulator_cash,
+)
 
 
 PROJECT_DIRECTORY = Path(__file__).parent.resolve()
 OUTPUT_DIRECTORY = PROJECT_DIRECTORY / "output"
 WATCHLIST_FILE = PROJECT_DIRECTORY / "watchlist.json"
 PORTFOLIO_FILE = PROJECT_DIRECTORY / "data" / "portfolio.json"
+SIMULATOR_FILE = PROJECT_DIRECTORY / "data" / "simulator.json"
 RAW_INTERVAL_DATA_DIRECTORY = PROJECT_DIRECTORY / "data" / "raw_interval"
 INTERVAL_RESEARCH_DIRECTORY = OUTPUT_DIRECTORY / "research"
 FUNDAMENTAL_METRICS = (
@@ -942,6 +957,161 @@ def render_portfolio(quant_snapshot, daily_signal):
                     st.rerun()
 
 
+def _strategy_candidate_rows(candidates):
+    """把策略审计记录压缩为适合页面核对的候选表。"""
+    rows = []
+    for item in candidates or []:
+        if not isinstance(item, dict):
+            continue
+        daily = item.get("日线证据", {}) if isinstance(item.get("日线证据"), dict) else {}
+        minute = item.get("分时证据", {}) if isinstance(item.get("分时证据"), dict) else {}
+        rows.append({
+            "股票代码": item.get("股票代码"),
+            "股票名称": item.get("股票名称"),
+            "数据时间": item.get("数据时间"),
+            "涨幅(%)": item.get("涨幅(%)"),
+            "量比": item.get("量比"),
+            "换手率(%)": item.get("换手率(%)"),
+            "流通市值(亿元)": item.get("流通市值(亿元)"),
+            "量能递增": daily.get("volume_staircase", "数据不足"),
+            "均线多头": daily.get("ma_bull", "数据不足"),
+            "全天VWAP上方": minute.get("all_at_or_above_vwap", "数据不足"),
+            "14:30附近创高": minute.get("near_1430_new_high", "数据不足"),
+        })
+    return rows
+
+
+def render_strategy_center(quant_snapshot):
+    """渲染可执行策略卡和已保存筛选结果；运行策略始终需要用户明确点击。"""
+    st.header("策略中心")
+    st.caption("策略 skill 用于规范策略流程；页面执行的是可复现的策略模块。运行会访问公开行情，并保存带时间戳的本地筛选快照。")
+    st.dataframe(strategy_catalog(), use_container_width=True, hide_index=True)
+    catalog = load_catalog(CATALOG_FILE)
+    if len(catalog) < 3000:
+        st.warning(f"本地A股代码目录当前仅有 {len(catalog)} 条，无法完成全市场筛选。")
+        if st.button("更新本地A股代码目录"):
+            with st.spinner("正在更新公开A股代码目录…"):
+                refresh_result = refresh_catalog()
+            if refresh_result.get("status") == "success":
+                st.success(f"代码目录已更新：{refresh_result.get('count')} 只。")
+                st.rerun()
+            else:
+                st.error(refresh_result.get("message", "代码目录更新失败。"))
+    if st.button("运行 A 股午后强势筛选", type="primary", disabled=len(catalog) < 3000):
+        with st.spinner("正在核验全市场行情、日线和分时证据…"):
+            result = run_afternoon_momentum_screen(catalog)
+        if result.get("status") == "success":
+            save_strategy_run(result, OUTPUT_DIRECTORY)
+            st.success(result.get("message", "筛选完成。"))
+            st.rerun()
+        elif result.get("status") == "not_ready":
+            st.info(result.get("message", "当前尚未到策略运行时间。"))
+        else:
+            st.error(result.get("message", "策略运行失败。"))
+
+    result = load_latest_strategy_run(OUTPUT_DIRECTORY)
+    if not result:
+        st.info("尚无已保存的策略运行记录。交易日14:30后可手动运行首个策略。")
+        return
+    st.markdown("#### 最近一次运行")
+    st.caption(
+        f"数据源：{result.get('data_source', '未记录')} ｜ 获取时间：{result.get('retrieved_at', '未记录')} ｜ "
+        f"范围：{result.get('universe', '未记录')} {result.get('universe_count', '未记录')} 只 ｜ "
+        f"初筛：{result.get('initial_count', '未记录')} 只"
+    )
+    candidates = result.get("candidates", [])
+    candidate_rows = _strategy_candidate_rows(candidates)
+    if candidate_rows:
+        st.dataframe(candidate_rows, use_container_width=True, hide_index=True)
+        _render_snapshot_buy(candidates, result)
+    else:
+        st.info(result.get("message", "今日无完全符合条件的候选。"))
+    near_misses = result.get("near_misses", [])
+    if near_misses:
+        st.markdown("#### 接近条件但未入选")
+        st.dataframe(
+            [{"股票代码": item.get("股票代码"), "股票名称": item.get("股票名称"), "未通过条件": "；".join(item.get("未通过条件", []))} for item in near_misses],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+def _render_snapshot_buy(candidates, result):
+    """仅在用户再次确认后，把候选按快照收盘价加入独立模拟账本。"""
+    try:
+        simulator = load_simulator(SIMULATOR_FILE)
+    except ValueError as error:
+        st.error(str(error))
+        return
+    accounts = [item["account"] for item in simulator.get("cash", [])]
+    with st.expander("按快照收盘价建立模拟仓", expanded=False):
+        st.caption("这不是实际委托，也不宣称按下一交易日成交；只在本地模拟账本中按本次策略快照价格记账。")
+        if not accounts:
+            st.info("请先在“模拟仓”录入现金余额，再建立模拟仓位。")
+            return
+        labels = [f"{item.get('股票名称')}（{item.get('股票代码')}）" for item in candidates]
+        selected_index = st.selectbox("策略候选", range(len(candidates)), format_func=lambda index: labels[index], key="simulator_candidate")
+        account = st.selectbox("模拟账户", accounts, key="simulator_account")
+        quantity = st.number_input("模拟数量（100股整数倍）", min_value=100, step=100, key="simulator_quantity")
+        selected = candidates[selected_index]
+        st.caption(f"快照价格：{_money(selected.get('现价'))} ｜ 策略：{result.get('strategy_name', STRATEGY_ID)}")
+        confirmed = st.checkbox("我确认这是本地模拟建仓，不会向券商发送任何指令。", key="simulator_buy_confirm")
+        if st.button("确认建立模拟仓", disabled=not confirmed, key="simulator_buy"):
+            try:
+                updated, transaction = create_snapshot_buy(
+                    simulator,
+                    account,
+                    selected,
+                    quantity,
+                    result.get("strategy_id", STRATEGY_ID),
+                    str(result.get("retrieved_at", ""))[:10],
+                )
+                save_simulator(SIMULATOR_FILE, updated)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.success(f"已建立本地模拟仓：{transaction['股票名称']} {transaction['数量']} 股。")
+                st.rerun()
+
+
+def render_simulator(quant_snapshot):
+    """渲染与真实持仓完全分离的本地模拟仓。"""
+    st.header("模拟仓（本地）")
+    st.caption("模拟现金、持仓与交易流水只保存于本机 data/simulator.json；不连接券商，不执行真实交易。估值使用本地最近日线收盘。")
+    try:
+        simulator = load_simulator(SIMULATOR_FILE)
+    except ValueError as error:
+        st.error(str(error))
+        return
+    rows, summary = summarize_simulator(simulator, _local_quote_map(quant_snapshot))
+    metrics = st.columns(4)
+    metrics[0].metric("模拟持仓", summary["模拟持仓数"])
+    metrics[1].metric("模拟现金", _money(summary["模拟现金"]))
+    metrics[2].metric("已报价模拟市值", _money(summary["已报价模拟市值"]))
+    metrics[3].metric("缺少报价", summary["缺少报价数"])
+    with st.expander("设置模拟现金", expanded=not simulator.get("cash")):
+        with st.form("simulator_cash_form", clear_on_submit=True):
+            account = st.text_input("模拟账户名称", placeholder="例如：午后策略模拟仓")
+            amount = st.number_input("模拟现金余额", min_value=0.0, step=1000.0)
+            if st.form_submit_button("保存模拟现金"):
+                try:
+                    save_simulator(SIMULATOR_FILE, upsert_simulator_cash(simulator, account, amount))
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.success("本地模拟现金已保存。")
+                    st.rerun()
+    if rows:
+        st.markdown("#### 当前模拟持仓")
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("尚无模拟持仓。先设置模拟现金，再从“策略中心”的候选中建立模拟仓。")
+    transactions = simulator.get("transactions", [])
+    if transactions:
+        st.markdown("#### 模拟交易流水")
+        st.dataframe(transactions, use_container_width=True, hide_index=True)
+
+
 def main():
     """启动本机 Streamlit 页面。"""
     if st is None:
@@ -992,11 +1162,17 @@ def main():
         st.warning(f"daily_signal 不可用：{error}")
         daily_signal = None
 
-    home_tab, portfolio_tab, query_tab, watchlist_tab, research_tab = st.tabs(["投资总览", "持仓管理", "单股票查询", "关注列表", "系统状态"])
+    home_tab, portfolio_tab, strategy_tab, simulator_tab, query_tab, watchlist_tab, research_tab = st.tabs(
+        ["投资总览", "持仓管理", "策略中心", "模拟仓", "单股票查询", "关注列表", "系统状态"]
+    )
     with home_tab:
         render_home(quant_snapshot, watchlist_snapshot, get_report_file(report_date), daily_signal)
     with portfolio_tab:
         render_portfolio(quant_snapshot, daily_signal)
+    with strategy_tab:
+        render_strategy_center(quant_snapshot)
+    with simulator_tab:
+        render_simulator(quant_snapshot)
     with research_tab:
         render_research_dashboard(dashboard)
     with query_tab:

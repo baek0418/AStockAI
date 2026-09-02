@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from recommendation_evaluation import create_markdown, evaluate_recommendations
+from astock_core.research.recommendation_evaluation import create_markdown, evaluate_recommendations
 
 
 def write_history(path, closes):

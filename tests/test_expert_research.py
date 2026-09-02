@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from expert_research import build_expert_research_memo, build_price_research_evidence
+from astock_core.analysis.expert_research import build_expert_research_memo, build_price_research_evidence
 
 
 class ExpertResearchTests(unittest.TestCase):

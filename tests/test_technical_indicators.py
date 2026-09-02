@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from technical_indicators import TECHNICAL_INDICATOR_COLUMNS, calculate_technical_indicators, latest_technical_indicators
+from astock_core.analysis.technical_indicators import TECHNICAL_INDICATOR_COLUMNS, calculate_technical_indicators, latest_technical_indicators
 
 
 def make_history(days=80):

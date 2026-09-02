@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from conservative_candidates import build_conservative_candidates
+from astock_core.research.conservative_candidates import build_conservative_candidates
 
 
 def write_history(path, closes, volume=1000):

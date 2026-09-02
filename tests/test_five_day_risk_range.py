@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from five_day_risk_range import build_five_day_risk_range
+from astock_core.analysis.five_day_risk_range import build_five_day_risk_range
 
 
 class FiveDayRiskRangeTests(unittest.TestCase):

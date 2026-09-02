@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis_evidence import (
+from astock_core.analysis.analysis_evidence import (
     build_report_evidence,
     load_market_context,
     load_quote_provenance_context,
 )
-from daily_report import create_evidence_report_content, create_rule_cross_signal_summary
-from stock_analysis import create_evidence_markdown_content
+from astock_core.reporting.daily_report import create_evidence_report_content, create_rule_cross_signal_summary
+from astock_core.analysis.stock_analysis import create_evidence_markdown_content
 
 
 def write_json(path, data):
@@ -45,12 +45,24 @@ class AnalysisEvidenceTests(unittest.TestCase):
         self.market.mkdir(parents=True)
         self.fundamentals.mkdir(parents=True)
         self.watchlist = self.root / "watchlist.json"
+        self.portfolio = self.root / "data" / "portfolio.json"
         write_json(self.watchlist, {"stocks": [{"code": "000001", "name": "测试股", "priority": 5, "enable": True}]})
+        write_json(
+            self.portfolio,
+            {"version": "1.0", "holdings": [{
+                "account": "本地账户", "code": "000001", "name": "测试股",
+                "quantity": 100, "cost_price": 10.0, "category": "",
+            }], "cash": []},
+        )
         write_json(
             self.output / "quant_snapshot_2026-07-24.json",
             {"快照日期": "2026-07-24", "股票排行榜": [{
                 "股票代码": "000001", "股票名称": "测试股", "综合评分": 70,
                 "收盘价": 12.34, "RSI": 55, "MA5": 11, "MA20": 10, "MACD": 0.2, "建议": "重点观察",
+                "扩展技术指标": {
+                    "momentum_5d": 0.03, "momentum_10d": 0.05, "momentum_20d": 0.08,
+                    "volatility_20d": 0.02, "volume_relative_5d": 1.3,
+                },
             }]},
         )
         write_json(
@@ -109,7 +121,7 @@ class AnalysisEvidenceTests(unittest.TestCase):
 
     def test_missing_market_file_is_explicit_and_does_not_block_evidence(self):
         (self.market / "中证1000_sh000852.csv").unlink()
-        evidence = build_report_evidence(self.output, self.market, self.watchlist)
+        evidence = build_report_evidence(self.output, self.market, self.watchlist, self.portfolio)
         self.assertIn("数据不足", evidence["市场环境"]["指数"]["中证1000"]["数据状态"])
         self.assertEqual(evidence["关注股票"][0]["当前量化证据"]["Score"], 70)
 
@@ -139,6 +151,10 @@ class AnalysisEvidenceTests(unittest.TestCase):
         email_body = daily_markdown.split("<!-- EMAIL_BODY_END -->", maxsplit=1)[0]
         self.assertIn("## 今天先看市场", email_body)
         self.assertIn("## 数据状态", email_body)
+        self.assertIn("## 我的持仓：今天先核对什么", email_body)
+        self.assertIn("已匹配本地收盘的市值 ¥1,234", email_body)
+        self.assertIn("近 5 日 +3.00%", email_body)
+        self.assertIn("成交量为近 5 日均量 1.30 倍", email_body)
         self.assertIn("1 只使用备用源", email_body)
         self.assertIn("## 今天最值得关注的公司", email_body)
         self.assertIn("结论：", email_body)
