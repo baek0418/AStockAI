@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
-import requests
 
 from astock_core.analysis.on_demand_analysis import (
+    OFFICIAL_EXCHANGE_CATALOG_SOURCE,
     add_stock_to_watchlist,
     analyze_on_demand_stock,
     get_history_file,
@@ -63,10 +63,22 @@ class OnDemandAnalysisTests(unittest.TestCase):
         self.assertEqual(resolve_catalog_query("900000", catalog), [])
 
     def test_code_query_and_tencent_analysis_do_not_depend_on_catalog_refresh(self):
-        failed_refresh = refresh_catalog(
-            request_get=lambda *args, **kwargs: (_ for _ in ()).throw(requests.exceptions.ProxyError("代理失败")),
-            catalog_file=self.catalog_file,
-        )
+        class FailedLogin:
+            error_code = "1"
+            error_msg = "代理失败"
+
+        class FailedBaoStock:
+            def login(self):
+                return FailedLogin()
+
+        with patch(
+            "astock_core.analysis.on_demand_analysis._fetch_official_exchange_catalog",
+            side_effect=ValueError("交易所目录暂不可用"),
+        ):
+            failed_refresh = refresh_catalog(
+                baostock_module=FailedBaoStock(),
+                catalog_file=self.catalog_file,
+            )
         direct_stock = resolve_code_query("600839")
         result = analyze_on_demand_stock(
             direct_stock,
@@ -78,44 +90,35 @@ class OnDemandAnalysisTests(unittest.TestCase):
         )
 
         self.assertEqual(failed_refresh["status"], "failed")
+        self.assertIn("代理", failed_refresh["message"])
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["analysis"]["股票名称"], "四川长虹")
         self.assertIn("腾讯", result["analysis"]["行情来源"])
         self.assertIn("腾讯", result["analysis"]["名称目录来源"])
 
-    def test_catalog_refresh_fetches_all_pages_before_saving(self):
-        class FakeResponse:
-            def __init__(self, data):
-                self.data = data
+    def test_catalog_refresh_prefers_official_exchange_https_before_saving(self):
+        class BaoStockMustNotRun:
+            def login(self):
+                raise AssertionError("官方交易所目录可用时不应调用 BaoStock")
 
-            def raise_for_status(self):
-                return None
-
-            def json(self):
-                return {"data": self.data}
-
-        pages = {
-            1: {"total": 3, "diff": [
-                {"f12": "000001", "f14": "平安银行"},
-                {"f12": "300750", "f14": "宁德时代"},
-            ]},
-            2: {"total": 3, "diff": [{"f12": "600589", "f14": "大位科技"}]},
-        }
-
-        def request_get(url, params, headers, timeout):
-            self.assertIn("push2.eastmoney.com", url)
-            self.assertEqual(headers["User-Agent"], "Mozilla/5.0")
-            return FakeResponse(pages[params["pn"]])
-
-        with patch("astock_core.analysis.on_demand_analysis.CATALOG_PAGE_SIZE", 2):
+        official_entries = [
+            {"code": "000001", "name": "平安银行"},
+            {"code": "300750", "name": "宁德时代"},
+            {"code": "600589", "name": "大位科技"},
+        ]
+        with patch(
+            "astock_core.analysis.on_demand_analysis._fetch_official_exchange_catalog",
+            return_value=official_entries,
+        ):
             result = refresh_catalog(
-                request_get=request_get,
+                baostock_module=BaoStockMustNotRun(),
                 catalog_file=self.catalog_file,
                 minimum_entries=3,
             )
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["count"], 3)
+        self.assertEqual(result["source"], OFFICIAL_EXCHANGE_CATALOG_SOURCE)
         self.assertEqual(resolve_catalog_query("大位科技", json.loads(
             self.catalog_file.read_text(encoding="utf-8")
         )["stocks"])[0]["code"], "600589")
@@ -124,20 +127,38 @@ class OnDemandAnalysisTests(unittest.TestCase):
         self.catalog_file.parent.mkdir(parents=True)
         self.catalog_file.write_text(json.dumps({"stocks": [self.stock]}), encoding="utf-8")
 
-        class FakeResponse:
-            def raise_for_status(self):
+        class Result:
+            error_code = "0"
+            error_msg = ""
+            fields = ["code", "code_name", "ipoDate", "outDate", "type", "status"]
+            index = -1
+
+            def next(self):
+                self.index += 1
+                return self.index == 0
+
+            def get_row_data(self):
+                return ["sh.600589", "大位科技", "2001-08-20", "", "1", "1"]
+
+        class BaoStock:
+            def login(self):
+                return Result()
+
+            def query_stock_basic(self):
+                return Result()
+
+            def logout(self):
                 return None
 
-            def json(self):
-                return {"data": {"total": 180, "diff": [
-                    {"f12": "600589", "f14": "大位科技"}
-                ]}}
-
-        result = refresh_catalog(
-            request_get=lambda *args, **kwargs: FakeResponse(),
-            catalog_file=self.catalog_file,
-            minimum_entries=3000,
-        )
+        with patch(
+            "astock_core.analysis.on_demand_analysis._fetch_official_exchange_catalog",
+            return_value=[{"code": "600589", "name": "大位科技"}],
+        ):
+            result = refresh_catalog(
+                baostock_module=BaoStock(),
+                catalog_file=self.catalog_file,
+                minimum_entries=3000,
+            )
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(json.loads(self.catalog_file.read_text(encoding="utf-8"))["stocks"], [self.stock])

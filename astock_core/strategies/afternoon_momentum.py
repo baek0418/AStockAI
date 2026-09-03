@@ -27,12 +27,23 @@ def strategy_catalog():
     return [{
         "id": STRATEGY_ID,
         "名称": STRATEGY_TITLE,
+        "周期标签": "短线",
+        "观察周期": "1–5 个交易日",
+        "研究风格": "动量",
         "关联 Skill": f"${SKILL_NAME}",
         "运行窗口": "A股交易日 14:30 后",
         "调仓口径": "只生成模拟观察项；模拟建仓需用户再次确认。",
         "数据要求": "全市场实时行情、日线和当日分时数据",
         "状态": "可运行",
     }]
+
+
+def filter_strategy_catalog(period=None):
+    """按用户选择的持有/观察周期筛选可执行策略目录。"""
+    strategies = strategy_catalog()
+    if not period or period == "全部":
+        return strategies
+    return [item for item in strategies if item.get("周期标签") == period]
 
 
 def _number(fields, index):

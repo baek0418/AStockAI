@@ -7,10 +7,12 @@ from zoneinfo import ZoneInfo
 from astock_core.strategies.afternoon_momentum import (
     daily_evidence,
     evaluate_candidate,
+    filter_strategy_catalog,
     initial_filter,
     minute_evidence,
     parse_quote_payload,
     run_afternoon_momentum_screen,
+    strategy_catalog,
 )
 
 
@@ -106,6 +108,11 @@ class AfternoonMomentumTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["universe_count"], 3000)
         self.assertEqual([item["股票代码"] for item in result["candidates"]], ["000001"])
+
+    def test_strategy_catalog_has_short_term_tag_and_filters_by_period(self):
+        self.assertEqual(strategy_catalog()[0]["周期标签"], "短线")
+        self.assertEqual(len(filter_strategy_catalog("短线")), 1)
+        self.assertEqual(filter_strategy_catalog("长线"), [])
 
 
 if __name__ == "__main__":

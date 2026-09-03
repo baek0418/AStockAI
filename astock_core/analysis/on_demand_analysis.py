@@ -3,6 +3,8 @@
 import json
 import os
 import re
+import threading
+from io import BytesIO, StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -22,11 +24,12 @@ CATALOG_FILE = ON_DEMAND_DATA_DIRECTORY / "a_share_catalog.json"
 QUOTE_SOURCE = "腾讯财经单股识别接口"
 MARKET_DATA_SOURCE = "腾讯财经前复权日线接口"
 LOCAL_CATALOG_SOURCE = "本地 A 股代码名称目录缓存"
-EASTMONEY_CATALOG_SOURCE = "东方财富公开 A 股代码名称目录接口"
-EASTMONEY_CATALOG_URL = "https://push2.eastmoney.com/api/qt/clist/get"
-CATALOG_PAGE_SIZE = 500
+BAOSTOCK_CATALOG_SOURCE = "BaoStock 证券基本资料接口"
+SSE_CATALOG_URL = "https://query.sse.com.cn/security/stock/downloadStockListFile.do"
+SZSE_CATALOG_URL = "https://www.szse.cn/api/report/ShowReport"
+OFFICIAL_EXCHANGE_CATALOG_SOURCE = "上海证券交易所、深圳证券交易所公开股票列表"
 MIN_A_SHARE_CATALOG_SIZE = 3000
-CATALOG_MARKET_FILTER = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+_BAOSTOCK_CATALOG_LOCK = threading.Lock()
 
 
 def safe_stock_name(stock_name):
@@ -115,76 +118,143 @@ def merge_catalog_entries(new_entries, catalog_file=CATALOG_FILE):
     return merged_entries
 
 
-def _catalog_request_params(page_number):
-    """构造单页 A 股名称目录请求参数。"""
-    return {
-        "pn": page_number,
-        "pz": CATALOG_PAGE_SIZE,
-        "po": 1,
-        "np": 1,
-        "fltt": 2,
-        "invt": 2,
-        "fid": "f3",
-        "fs": CATALOG_MARKET_FILTER,
-        "fields": "f12,f14",
-    }
+def _baostock_module(baostock_module=None):
+    if baostock_module is not None:
+        return baostock_module
+    try:
+        import baostock
+    except ImportError as error:
+        raise ValueError("缺少 baostock 依赖；请执行 .venv/bin/pip install -r requirements.txt。") from error
+    return baostock
 
 
-def _fetch_catalog_page(request_get, page_number):
-    """读取并校验目录接口的单页响应，不在这里修改本地文件。"""
+def _ensure_baostock_success(result, action):
+    if str(getattr(result, "error_code", "-1")) != "0":
+        message = str(getattr(result, "error_msg", "未提供错误说明")).strip()
+        raise ValueError(f"BaoStock {action}失败：{message}")
+
+
+def _fetch_baostock_catalog(baostock_module=None):
+    """读取 BaoStock 全量在市沪深股票基本资料；其模块级会话需串行使用。"""
+    api = _baostock_module(baostock_module)
+    with _BAOSTOCK_CATALOG_LOCK:
+        login_result = api.login()
+        _ensure_baostock_success(login_result, "登录")
+        try:
+            result = api.query_stock_basic()
+            _ensure_baostock_success(result, "证券基本资料查询")
+            fields = list(getattr(result, "fields", []))
+            required = {"code", "code_name", "type", "status"}
+            if not required.issubset(fields):
+                raise ValueError("BaoStock 证券基本资料缺少代码、名称、类型或上市状态字段")
+            entries = []
+            while result.next():
+                values = result.get_row_data()
+                row = dict(zip(fields, values))
+                market_code = str(row.get("code", "")).strip().lower()
+                market, separator, code = market_code.partition(".")
+                if (
+                    separator != "." or market not in {"sh", "sz"} or not code.isdigit()
+                    or str(row.get("type", "")).strip() != "1"
+                    or str(row.get("status", "")).strip() != "1"
+                ):
+                    continue
+                entries.append({"code": code, "name": str(row.get("code_name", "")).strip()})
+            return entries
+        finally:
+            try:
+                api.logout()
+            except Exception:
+                pass
+
+
+def _fetch_sse_catalog(request_get):
+    """下载上交所上市股票列表；该公开接口返回 GBK 系制表符文本。"""
     response = request_get(
-        EASTMONEY_CATALOG_URL,
-        params=_catalog_request_params(page_number),
-        headers={"User-Agent": "Mozilla/5.0"},
+        SSE_CATALOG_URL,
+        params={"csrcCode": "", "stockCode": "", "areaName": "", "stockType": "1"},
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://www.sse.com.cn/assortment/stock/list/share/",
+        },
         timeout=20,
     )
     response.raise_for_status()
-    payload = response.json().get("data") or {}
-    total = payload.get("total")
-    rows = payload.get("diff")
-    if not isinstance(total, int) or total <= 0 or not isinstance(rows, list):
-        raise ValueError("A 股代码目录接口返回的总数或列表格式异常")
-    return total, rows
+    frame = pd.read_csv(
+        StringIO(response.content.decode("gb18030", errors="replace")), sep="\t", dtype=str
+    )
+    frame.columns = [str(column).strip() for column in frame.columns]
+    if not {"公司代码", "公司简称"}.issubset(frame.columns):
+        raise ValueError("上交所股票列表缺少公司代码或公司简称字段")
+    return [
+        {"code": row["公司代码"], "name": row["公司简称"]}
+        for _, row in frame.iterrows()
+    ]
+
+
+def _fetch_szse_catalog(request_get):
+    """下载深交所 A 股列表 XLSX；只保留代码与简称。"""
+    response = request_get(
+        SZSE_CATALOG_URL,
+        params={"SHOWTYPE": "xlsx", "CATALOGID": "1110", "TABKEY": "tab1", "random": "0.1"},
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://www.szse.cn/market/product/stock/list/index.html",
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    frame = pd.read_excel(BytesIO(response.content), dtype=str)
+    frame.columns = [str(column).strip() for column in frame.columns]
+    if not {"A股代码", "A股简称"}.issubset(frame.columns):
+        raise ValueError("深交所 A 股列表缺少代码或简称字段")
+    return [
+        {"code": row["A股代码"], "name": row["A股简称"]}
+        for _, row in frame.iterrows()
+    ]
+
+
+def _fetch_official_exchange_catalog(request_get):
+    """两个交易所均成功返回时才使用官方 HTTPS 目录，避免半份目录混入。"""
+    return _fetch_sse_catalog(request_get) + _fetch_szse_catalog(request_get)
 
 
 def refresh_catalog(
     request_get=requests.get,
     catalog_file=CATALOG_FILE,
     minimum_entries=MIN_A_SHARE_CATALOG_SIZE,
+    baostock_module=None,
 ):
-    """分页刷新完整 A 股名称目录；数量异常时保留旧目录不覆盖。"""
-    try:
-        total, rows = _fetch_catalog_page(request_get, 1)
-        differences = list(rows)
-        page_count = (total + CATALOG_PAGE_SIZE - 1) // CATALOG_PAGE_SIZE
-        for page_number in range(2, page_count + 1):
-            page_total, page_rows = _fetch_catalog_page(request_get, page_number)
-            if page_total != total:
-                raise ValueError("A 股代码目录分页返回的总数不一致")
-            differences.extend(page_rows)
-
-        entries = [
-            {"code": item.get("f12", ""), "name": item.get("f14", "")}
-            for item in differences
-            if isinstance(item, dict)
-        ]
-        normalized_entries = normalize_catalog(entries)
-        if len(normalized_entries) < minimum_entries:
-            raise ValueError(
-                f"仅获得 {len(normalized_entries)} 只有效沪深 A 股，低于完整目录校验阈值 {minimum_entries}"
-            )
-    except (requests.RequestException, KeyError, TypeError, ValueError) as error:
-        return {"status": "failed", "message": f"更新 A 股代码目录失败：{error}。"}
+    """优先通过交易所 HTTPS 刷新目录，必要时才回退至 BaoStock。"""
+    failures = []
+    for source, fetcher in (
+        (OFFICIAL_EXCHANGE_CATALOG_SOURCE, lambda: _fetch_official_exchange_catalog(request_get)),
+        (BAOSTOCK_CATALOG_SOURCE, lambda: _fetch_baostock_catalog(baostock_module)),
+    ):
+        try:
+            normalized_entries = normalize_catalog(fetcher())
+            if len(normalized_entries) < minimum_entries:
+                raise ValueError(
+                    f"仅获得 {len(normalized_entries)} 只有效沪深 A 股，低于完整目录校验阈值 {minimum_entries}"
+                )
+            break
+        except (requests.RequestException, KeyError, TypeError, ValueError) as error:
+            failures.append(f"{source}：{error}")
+    else:
+        return {
+            "status": "failed",
+            "message": "更新 A 股代码目录失败；" + "；".join(failures) + "。已有本地目录不会被覆盖。",
+        }
 
     catalog = merge_catalog_entries(normalized_entries, catalog_file)
     catalog_data = read_json(catalog_file, "A 股代码目录")
-    catalog_data["目录来源"] = EASTMONEY_CATALOG_SOURCE
+    catalog_data["目录来源"] = source
     write_json_atomically(catalog_file, catalog_data)
     return {
         "status": "success",
         "message": "A 股代码目录更新成功。",
         "count": len(catalog),
-        "source": EASTMONEY_CATALOG_SOURCE,
+        "source": source,
     }
 
 

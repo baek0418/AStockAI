@@ -2,7 +2,11 @@ import unittest
 
 import pandas as pd
 
-from astock_core.analysis.expert_research import build_expert_research_memo, build_price_research_evidence
+from astock_core.analysis.expert_research import (
+    build_expert_research_memo,
+    build_price_research_evidence,
+    render_expert_research_memo,
+)
 
 
 class ExpertResearchTests(unittest.TestCase):
@@ -41,6 +45,21 @@ class ExpertResearchTests(unittest.TestCase):
         self.assertIn("同向偏强", memo["核心研究论点"])
         self.assertTrue(any("RSI" in item for item in memo["相反证据与风险"]))
         self.assertIn("未接入", memo["基本面与行业证据"])
+
+    def test_long_term_value_profile_adds_auditable_horizon_and_checks(self):
+        memo = build_expert_research_memo(
+            {"当前量化证据": {}},
+            {"数据状态": "数据不足"},
+            profile_id="long_term_value",
+        )
+
+        self.assertEqual(memo["研究框架"]["周期标签"], "长线")
+        self.assertEqual(memo["研究框架"]["观察周期"], "3–5 年")
+        self.assertTrue(any("报告期" in item for item in memo["待验证或证伪"]))
+        rendered = render_expert_research_memo(memo)
+        self.assertNotIn("外部 Skill", rendered)
+        self.assertNotIn("来源说明", rendered)
+        self.assertNotIn("框架边界", rendered)
 
 
 if __name__ == "__main__":

@@ -67,10 +67,15 @@ from astock_core.portfolio.portfolio_management import (
 from astock_core.analysis.five_day_risk_range import build_five_day_risk_range
 from astock_core.strategies.afternoon_momentum import (
     STRATEGY_ID,
+    filter_strategy_catalog,
     load_latest_strategy_run,
     run_afternoon_momentum_screen,
     save_strategy_run,
-    strategy_catalog,
+)
+from astock_core.strategies.research_profiles import (
+    DEFAULT_RESEARCH_PROFILE_ID,
+    get_research_profile,
+    research_profile_catalog,
 )
 from astock_core.simulator.paper_portfolio import (
     create_snapshot_buy,
@@ -88,6 +93,7 @@ PORTFOLIO_FILE = PROJECT_DIRECTORY / "data" / "portfolio.json"
 SIMULATOR_FILE = PROJECT_DIRECTORY / "data" / "simulator.json"
 RAW_INTERVAL_DATA_DIRECTORY = PROJECT_DIRECTORY / "data" / "raw_interval"
 INTERVAL_RESEARCH_DIRECTORY = OUTPUT_DIRECTORY / "research"
+RESEARCH_FRAMEWORK_SOURCES_FILE = PROJECT_DIRECTORY / "docs" / "research_framework_sources.md"
 FUNDAMENTAL_METRICS = (
     "营业总收入",
     "归母净利润",
@@ -101,6 +107,15 @@ FUNDAMENTAL_METRICS = (
     "每股收益(基本)",
     "每股净资产",
 )
+
+
+def render_research_framework_sources():
+    """默认折叠展示来源与使用边界，避免占用策略目录主表。"""
+    with st.expander("查看框架说明、来源与外部 Skill", expanded=False):
+        try:
+            st.markdown(RESEARCH_FRAMEWORK_SOURCES_FILE.read_text(encoding="utf-8"))
+        except OSError as error:
+            st.warning(f"研究框架说明文档暂不可读取：{error}")
 
 
 def build_fundamental_display_data(stock_evidence):
@@ -644,8 +659,35 @@ def render_stock_details(stock_record, daily_signal=None, signal_override=None, 
 
     render_fundamental_research(stock_evidence)
 
-    memo = stock_evidence.get("专家研究备忘录", {})
+    profile_catalog = research_profile_catalog()
+    profile_ids = [item["id"] for item in profile_catalog]
+    active_profile_id = st.session_state.get("active_research_profile", DEFAULT_RESEARCH_PROFILE_ID)
+    selected_profile_id = st.selectbox(
+        "研究框架",
+        profile_ids,
+        index=profile_ids.index(active_profile_id) if active_profile_id in profile_ids else 0,
+        format_func=lambda profile_id: next(
+            item["名称"] for item in profile_catalog if item["id"] == profile_id
+        ),
+        key=f"research_profile_{fact_snapshot['股票代码']}",
+        help="只改变证据核对清单和观察周期，不产生买卖指令。",
+    )
+    st.session_state["active_research_profile"] = selected_profile_id
+    profile = get_research_profile(selected_profile_id)
+    st.caption(
+        f"{profile['周期标签']}｜{profile['观察周期']}｜{profile['研究重点']}。"
+    )
+    memo = build_expert_research_memo(
+        stock_evidence,
+        stock_evidence.get("价格研究证据", {}),
+        stock_evidence.get("基本面研究证据"),
+        stock_evidence.get("估值观察"),
+        stock_evidence.get("行业同业比较"),
+        profile_id=selected_profile_id,
+    )
+    stock_evidence["专家研究备忘录"] = memo
     st.markdown("#### 专家研究框架（证据化）")
+    st.caption(f"当前：{memo['研究框架']['名称']}")
     st.write(memo.get("核心研究论点", "数据不足"))
     for heading in ("支持证据", "相反证据与风险", "待验证或证伪"):
         st.markdown(f"**{heading}**")
@@ -756,7 +798,7 @@ def render_on_demand_query(query):
 
     st.caption(f"本地 A 股代码目录：{len(catalog)} 条。目录更新只获取名称和代码，不下载日线。")
     if st.button("更新本地代码目录（可选）", key="refresh_catalog"):
-        with st.spinner("正在更新本地 A 股代码目录…"):
+        with st.spinner("正在从交易所公开 HTTPS 目录更新本地 A 股代码目录…"):
             result = refresh_catalog()
         if result["status"] == "success":
             st.success(f"{result['message']} 当前共 {result['count']} 条。")
@@ -985,29 +1027,57 @@ def render_strategy_center(quant_snapshot):
     """渲染可执行策略卡和已保存筛选结果；运行策略始终需要用户明确点击。"""
     st.header("策略中心")
     st.caption("策略 skill 用于规范策略流程；页面执行的是可复现的策略模块。运行会访问公开行情，并保存带时间戳的本地筛选快照。")
-    st.dataframe(strategy_catalog(), use_container_width=True, hide_index=True)
+    selected_period = st.radio(
+        "按策略周期筛选",
+        ("全部", "短线", "中长线", "长线"),
+        horizontal=True,
+        key="strategy_period_filter",
+    )
+    executable = filter_strategy_catalog(selected_period)
+    if executable:
+        st.dataframe(executable, use_container_width=True, hide_index=True)
+    else:
+        st.info(f"当前没有“{selected_period}”可执行策略；可在下方选择对应的研究框架，用于单股票研究。")
+
+    st.markdown("#### 研究框架（可用于单股票页）")
+    profile_period = selected_period if selected_period in {"短线", "中长线", "长线"} else "全部"
+    profiles = research_profile_catalog(profile_period)
+    if profiles:
+        st.dataframe(profiles, use_container_width=True, hide_index=True)
+        profile_ids = [item["id"] for item in profiles]
+        chosen_profile_id = st.selectbox(
+            "设为单股票研究框架",
+            profile_ids,
+            format_func=lambda profile_id: next(item["名称"] for item in profiles if item["id"] == profile_id),
+            key="strategy_center_profile",
+        )
+        if st.button("应用研究框架", key="apply_research_profile"):
+            st.session_state["active_research_profile"] = chosen_profile_id
+            st.success("已应用。打开“单股票查询”即可按该框架查看证据与待验证项。")
+    render_research_framework_sources()
     catalog = load_catalog(CATALOG_FILE)
     if len(catalog) < 3000:
         st.warning(f"本地A股代码目录当前仅有 {len(catalog)} 条，无法完成全市场筛选。")
         if st.button("更新本地A股代码目录"):
-            with st.spinner("正在更新公开A股代码目录…"):
+            with st.spinner("正在从交易所公开 HTTPS 目录更新 A 股代码目录…"):
                 refresh_result = refresh_catalog()
             if refresh_result.get("status") == "success":
                 st.success(f"代码目录已更新：{refresh_result.get('count')} 只。")
                 st.rerun()
             else:
                 st.error(refresh_result.get("message", "代码目录更新失败。"))
-    if st.button("运行 A 股午后强势筛选", type="primary", disabled=len(catalog) < 3000):
-        with st.spinner("正在核验全市场行情、日线和分时证据…"):
-            result = run_afternoon_momentum_screen(catalog)
-        if result.get("status") == "success":
-            save_strategy_run(result, OUTPUT_DIRECTORY)
-            st.success(result.get("message", "筛选完成。"))
-            st.rerun()
-        elif result.get("status") == "not_ready":
-            st.info(result.get("message", "当前尚未到策略运行时间。"))
-        else:
-            st.error(result.get("message", "策略运行失败。"))
+    if any(item["id"] == STRATEGY_ID for item in executable):
+        if st.button("运行 A 股午后强势筛选", type="primary", disabled=len(catalog) < 3000):
+            with st.spinner("正在核验全市场行情、日线和分时证据…"):
+                result = run_afternoon_momentum_screen(catalog)
+            if result.get("status") == "success":
+                save_strategy_run(result, OUTPUT_DIRECTORY)
+                st.success(result.get("message", "筛选完成。"))
+                st.rerun()
+            elif result.get("status") == "not_ready":
+                st.info(result.get("message", "当前尚未到策略运行时间。"))
+            else:
+                st.error(result.get("message", "策略运行失败。"))
 
     result = load_latest_strategy_run(OUTPUT_DIRECTORY)
     if not result:

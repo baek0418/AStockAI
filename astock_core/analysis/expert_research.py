@@ -8,6 +8,8 @@ import math
 
 import pandas as pd
 
+from astock_core.strategies.research_profiles import get_research_profile
+
 
 INSUFFICIENT = "数据不足"
 RETURN_WINDOWS = (5, 20, 60, 120, 252)
@@ -91,7 +93,8 @@ def build_price_research_evidence(history_data, benchmark_data=None):
 
 
 def build_expert_research_memo(
-    stock_evidence, price_evidence, fundamental_evidence=None, valuation_evidence=None, peer_comparison=None
+    stock_evidence, price_evidence, fundamental_evidence=None, valuation_evidence=None, peer_comparison=None,
+    profile_id=None,
 ):
     """将可追溯事实组织为论点、反证和验证项，而非给出买卖结论。"""
     current = stock_evidence.get("当前量化证据", {})
@@ -133,12 +136,14 @@ def build_expert_research_memo(
         counter.append("近20日未显示相对沪深300优势或数据不足，个股表现可能主要受市场方向驱动。")
 
     volume_ratio = _as_number(price_evidence.get("成交活跃度"))
+    profile = get_research_profile(profile_id)
     confirmation = [
         "下一交易日后继续核对 MA5 与 MA20 的关系及 MACD 状态，确认技术结构没有反转。",
         "核对近20日相对沪深300表现是否保持同方向，避免只在市场普涨时误判个股强势。",
     ]
     if volume_ratio is not None:
         confirmation.append(f"当日成交量为前20日均量的 {volume_ratio} 倍；后续需确认量价是否持续匹配。")
+    confirmation.extend(profile["验证项"])
 
     fundamental_evidence = fundamental_evidence or {}
     fundamental_status = fundamental_evidence.get("数据状态", "数据不足：未下载基本面快照。")
@@ -173,6 +178,16 @@ def build_expert_research_memo(
             "不得以价格信号替代。可显式运行 fundamental_data.py 下载最近报告期快照。"
         )
     return {
+        "研究框架": {
+            "id": profile["id"],
+            "名称": profile["名称"],
+            "周期标签": profile["周期标签"],
+            "观察周期": profile["观察周期"],
+            "研究重点": profile["研究重点"],
+            "外部 Skill": profile.get("外部 Skill"),
+            "适用边界": profile["适用边界"],
+            "来源说明": profile["来源说明"],
+        },
         "核心研究论点": thesis,
         "支持证据": supports or ["本地价格证据不足，无法形成支持论据。"],
         "相反证据与风险": counter or ["现有规则未识别到额外反证；不代表风险不存在。"],
@@ -184,7 +199,15 @@ def build_expert_research_memo(
 
 def render_expert_research_memo(memo):
     """生成适合报告和页面展示的固定研究结构。"""
-    lines = ["## 专家研究框架（证据化）", "", f"- 核心研究论点：{memo['核心研究论点']}", "", "### 支持证据", ""]
+    framework = memo.get("研究框架", {})
+    lines = ["## 专家研究框架（证据化）", ""]
+    if framework:
+        lines.extend([
+            f"- 当前框架：{framework.get('名称', '未提供')}（{framework.get('周期标签', '未提供')}，{framework.get('观察周期', '未提供')}）",
+            f"- 研究重点：{framework.get('研究重点', '未提供')}",
+            "",
+        ])
+    lines.extend([f"- 核心研究论点：{memo['核心研究论点']}", "", "### 支持证据", ""])
     lines.extend(f"- {item}" for item in memo["支持证据"])
     lines.extend(["", "### 相反证据与风险", ""])
     lines.extend(f"- {item}" for item in memo["相反证据与风险"])
