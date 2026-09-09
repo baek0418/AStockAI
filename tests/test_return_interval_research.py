@@ -78,7 +78,8 @@ class ReturnIntervalResearchTests(unittest.TestCase):
                 json.dumps({"数据源": "BaoStock raw kline", "复权方式": "raw"}), encoding="utf-8"
             )
             audit = audit_price_basis(directory, dataset)
-        self.assertTrue(audit["严格时点价格依据可用"])
+        self.assertTrue(audit["原始价格快照可核对"])
+        self.assertFalse(audit["严格时点价格依据可用"])
         self.assertEqual(audit["非原始价格记录数"], 0)
 
     def test_cqr_scores_are_zero_or_negative_inside_and_positive_outside_the_bounds(self):

@@ -156,7 +156,7 @@ class PredictionV51Tests(unittest.TestCase):
             rows = get_stock("sz000001")
         self.assertEqual(rows[0][2], "2")
 
-    def test_stock_day_fallback_is_used_when_qfqday_is_unavailable(self):
+    def test_stock_day_fallback_is_rejected_when_qfqday_is_unavailable(self):
         class FakeResponse:
             def raise_for_status(self):
                 return None
@@ -165,8 +165,8 @@ class PredictionV51Tests(unittest.TestCase):
                 return {"data": {"sh601399": {"qfqday": [], "day": [["2025-01-02", "1", "2", "3", "0.5", "100"]]}}}
 
         with patch("astock_core.data.update_data.requests.get", return_value=FakeResponse()):
-            rows = get_stock("sh601399")
-        self.assertEqual(rows[0][2], "2")
+            with self.assertRaisesRegex(ValueError, "禁止回退"):
+                get_stock("sh601399")
 
     def test_v2_evaluation_accepts_target_wording_and_uses_custom_calibration_key(self):
         bins = calculate_probability_bins(

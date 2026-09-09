@@ -36,7 +36,7 @@ class OosPortfolioResearchTests(unittest.TestCase):
             [{"日期": "2025-01-01", "股票名称": "A", "收盘": 10}, {"日期": "2025-01-02", "股票名称": "B", "收盘": 20}]
         )
         signals = [pd.DataFrame({"日期": [pd.Timestamp("2025-01-01")], "股票名称": ["A"], PROBABILITY_COLUMN: [0.7]})]
-        with self.assertRaisesRegex(ValueError, "没有股票覆盖完整"):
+        with self.assertRaisesRegex(ValueError, "信号缺少执行价格"):
             create_execution_signal_panel(features, signals)
 
     def test_rebalance_interval_marks_only_every_nth_signal_day(self):

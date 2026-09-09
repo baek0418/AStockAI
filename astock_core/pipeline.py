@@ -118,6 +118,9 @@ def get_update_status(step_record, data_directory, logger):
         "success_count": success_count,
         "failed_count": failed_count,
         "valid_data_count": valid_data_count,
+        "failed_stocks": details.get("failed_stocks", []),
+        "non_qfq_count": details.get("non_qfq_count", 0),
+        "success_stocks": details.get("success_stocks", []),
     }
 
     if update_result.get("status") == "success":
@@ -153,6 +156,7 @@ def get_market_benchmark_update_status(step_record, logger):
     step_record["details"] = {
         "success_count": details.get("success_count", 0),
         "failed_count": details.get("failed_count", 0),
+        "results": details.get("results", []),
     }
     status = result.get("status")
     if status == "success":
@@ -310,7 +314,7 @@ def get_pipeline_status(pipeline_result):
         return "failed"
 
     statuses = [step["status"] for step in pipeline_result["steps"]]
-    if any(status in {"partial", "skipped"} for status in statuses):
+    if any(status in {"partial", "skipped", "failed"} for status in statuses):
         return "partial"
 
     return "success"

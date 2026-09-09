@@ -4,6 +4,8 @@ import json
 import math
 import os
 import sys
+import time
+from astock_core.data.daily_freshness import completed_history, latest_completed_session
 from datetime import datetime
 from pathlib import Path
 
@@ -37,14 +39,21 @@ def extract_index_day_rows(response_data, market_code):
 
 def fetch_tencent_index_daily(market_code, request_get=requests.get):
     """请求腾讯指数日线接口，返回未经变换的 ``day`` 行。"""
-    response = request_get(
-        TENCENT_KLINE_URL,
-        params={"param": f"{market_code},day,,,600,qfq"},
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=10,
-    )
-    response.raise_for_status()
-    return extract_index_day_rows(response.json(), market_code)
+    for attempt in range(3):
+        try:
+            response = request_get(
+                TENCENT_KLINE_URL,
+                params={"param": f"{market_code},day,,,600,qfq"},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            return extract_index_day_rows(response.json(), market_code)
+        except (requests.RequestException, ValueError):
+            if attempt == 2:
+                raise
+            time.sleep(0.5 * 2 ** attempt)
+
 
 
 def normalize_index_dataframe(day_rows):
@@ -109,6 +118,8 @@ def download_benchmarks(selected_names=None, market_directory=MARKET_DIRECTORY, 
         try:
             day_rows = fetch_index_daily(definition["market_code"])
             history_data = normalize_index_dataframe(day_rows)
+            if fetch_index_daily is fetch_tencent_index_daily:
+                history_data = completed_history(history_data, latest_completed_session())
             metadata = {
                 "name": name,
                 "market_code": definition["market_code"],

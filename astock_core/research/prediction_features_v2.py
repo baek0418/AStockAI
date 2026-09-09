@@ -62,17 +62,23 @@ def build_feature_dataset_v2(
     market_directory=None,
     project_directory=None,
     benchmark_name=DEFAULT_BENCHMARK,
+    stock_features=None,
 ):
     """内连接正式股票与基准交易日；不补齐基准缺失日期，也不读取按需目录。"""
     project_directory = Path(project_directory or Path(__file__).parents[2])
     market_directory = Path(market_directory or project_directory / "data" / "market")
-    allowed_stock_codes = get_enabled_research_stock_codes(project_directory)
-    stock_features, skipped_files = build_feature_dataset(
-        data_directory=data_directory,
-        project_directory=project_directory,
-        allowed_stock_codes=allowed_stock_codes,
-    )
+    historical_input = stock_features is not None
+    skipped_files = []
+    if stock_features is None:
+        allowed_stock_codes = get_enabled_research_stock_codes(project_directory)
+        stock_features, skipped_files = build_feature_dataset(
+            data_directory=data_directory,
+            project_directory=project_directory,
+            allowed_stock_codes=allowed_stock_codes,
+        )
     benchmark = load_benchmark_feature_frame(market_directory, benchmark_name)
+    if historical_input and not stock_features["日期"].isin(benchmark["日期"]).all():
+        raise ValueError("基准缺少历史特征日期，拒绝以内连接静默缩短研究区间。")
     dataset = stock_features.merge(
         benchmark,
         on="日期",

@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from astock_core.portfolio.corporate_actions import CorporateActionLedger
 
 
 REQUIRED_SIGNAL_COLUMNS = {"日期", "股票", "收盘", "信号"}
@@ -70,7 +71,7 @@ class PortfolioConfig:
 
 def _as_bool(value, column_name):
     if pd.isna(value):
-        return True
+        raise ValueError(f"{column_name} 缺失，不能假定可交易。")
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)) and value in (0, 1):
@@ -98,31 +99,35 @@ def prepare_signal_panel(signal_data):
     panel["信号"] = pd.to_numeric(panel["信号"], errors="coerce")
     if panel[["日期", "股票", "收盘"]].isna().any().any():
         raise ValueError("信号数据含有无效日期、股票或收盘价。")
-    if (panel["收盘"] <= 0).any() or (panel["股票"] == "").any():
+    if not panel["收盘"].map(math.isfinite).all() or (panel["收盘"] <= 0).any() or (panel["股票"] == "").any():
         raise ValueError("收盘价必须为正数，股票代码/名称不能为空。")
     if panel.duplicated(["日期", "股票"]).any():
         raise ValueError("同一日期、同一股票只能有一条信号。")
 
     for column in OPTIONAL_TRADE_COLUMNS:
         if column not in panel:
-            panel[column] = True
+            raise ValueError(f"缺少显式交易状态：{column}。")
         panel[column] = panel[column].map(lambda value: _as_bool(value, column))
+    if "复权方式" not in panel or not panel["复权方式"].eq("raw").all():
+        raise ValueError("执行面板必须明确标记为 raw 原始价格，不能用前复权价格成交。")
+    if "信号日期" in panel:
+        signal_dates = pd.to_datetime(panel["信号日期"], errors="coerce")
+        active = panel["信号"].notna()
+        if signal_dates[active].isna().any() or (signal_dates[active] >= panel.loc[active,"日期"]).any():
+            raise ValueError("信号必须在执行交易日之前可得。")
     if REBALANCE_COLUMN in panel:
         panel[REBALANCE_COLUMN] = panel[REBALANCE_COLUMN].map(
             lambda value: _as_bool(value, REBALANCE_COLUMN)
         )
         if panel.groupby("日期")[REBALANCE_COLUMN].nunique().gt(1).any():
             raise ValueError("同一交易日的调仓标记必须对全部股票一致。")
-        rebalance_signals = panel.loc[panel[REBALANCE_COLUMN]].groupby("日期")["信号"]
-        if rebalance_signals.apply(lambda values: values.notna().any()).eq(False).any():
-            raise ValueError("调仓日缺少有效信号。")
     elif panel["信号"].isna().any():
         raise ValueError("未提供调仓标记时，信号不能为空。")
     return panel.sort_values(["日期", "股票"]).reset_index(drop=True)
 
 
 def prepare_benchmark(benchmark_data, trading_dates):
-    """按回测交易日对齐基准；缺失日沿用上一可得收盘价，首日不得缺失。"""
+    """按回测交易日对齐基准；任一交易日缺失均拒绝，不前填。"""
     if benchmark_data is None:
         return None
     benchmark = pd.DataFrame(benchmark_data).copy()
@@ -137,9 +142,9 @@ def prepare_benchmark(benchmark_data, trading_dates):
         raise ValueError("基准数据为空或包含非正收盘价。")
     if benchmark.duplicated("日期").any():
         raise ValueError("基准数据的日期不能重复。")
-    aligned = benchmark.set_index("日期")["收盘"].reindex(trading_dates).ffill()
+    aligned = benchmark.set_index("日期")["收盘"].reindex(trading_dates)
     if aligned.isna().any():
-        raise ValueError("回测开始日之前缺少基准收盘价。")
+        raise ValueError("回测交易日缺少基准收盘价，禁止前填。")
     return aligned
 
 
@@ -184,7 +189,7 @@ def _portfolio_value(cash, positions, today_rows):
 
 
 def _select_targets(today_rows, config):
-    candidates = today_rows[today_rows["可买入"] & today_rows["信号"].notna()].copy()
+    candidates = today_rows[today_rows["信号"].notna()].copy()
     if config.min_signal is not None:
         candidates = candidates[candidates["信号"] >= config.min_signal]
     # ``股票`` 同时是索引和保留列，单独建排序列以兼容 pandas 的歧义检查。
@@ -232,25 +237,30 @@ def _record_trade(trades, date, symbol, side, shares, price, fee, reason):
     )
 
 
-def _rebalance(date, today_rows, positions, cash, config, trades, target_exposure=1.0, reason="调仓"):
+def _rebalance(date, today_rows, positions, cash, config, trades, target_exposure=1.0, reason="调仓", ledger=None, reference_value=None):
     """先卖后买，并严格遵守当天的买卖限制和仓位上限。"""
     selected = _select_targets(today_rows, config)
-    portfolio_value = _portfolio_value(cash, positions, today_rows)
+    portfolio_value = _portfolio_value(cash, positions, today_rows) + (ledger.receivable_value if ledger else 0)
     target_weight = min(config.max_weight, 1 / config.max_positions)
-    target_value = portfolio_value * target_weight * target_exposure
+    target_value = (portfolio_value if reference_value is None else reference_value) * target_weight * target_exposure
 
     target_shares = {}
     for symbol in selected:
         row = today_rows.loc[symbol]
-        raw_shares = math.floor(target_value / float(row["收盘"]) / config.lot_size)
+        reference_price = float(row.get("委托参考价", row["收盘"]))
+        if not math.isfinite(reference_price) or reference_price <= 0:
+            raise ValueError("委托参考价无效。")
+        raw_shares = math.floor(target_value / reference_price / config.lot_size)
         target_shares[symbol] = raw_shares * config.lot_size
 
     for symbol in sorted(list(positions)):
         row = today_rows.loc[symbol]
         desired = target_shares.get(symbol, 0)
         shares = positions[symbol]
-        sell_shares = max(shares - desired, 0)
+        sell_shares = min(max(shares - desired, 0), max(shares - (ledger.locked(symbol) if ledger else 0),0))
         if sell_shares and not row["可卖出"]:
+            if ledger:
+                ledger.blocked_orders.append({"日期":str(pd.Timestamp(date).date()),"股票":symbol,"方向":"卖出","股数":sell_shares,"原因":"显式禁止卖出"})
             continue
         if sell_shares:
             proceeds, execution_price, fee = _sell_proceeds(sell_shares, float(row["收盘"]), config)
@@ -263,9 +273,13 @@ def _rebalance(date, today_rows, positions, cash, config, trades, target_exposur
     for symbol in selected:
         row = today_rows.loc[symbol]
         if not row["可买入"]:
+            if ledger:
+                ledger.blocked_orders.append({"日期":str(pd.Timestamp(date).date()),"股票":symbol,"方向":"买入","原因":"显式禁止买入"})
             continue
         desired = target_shares[symbol]
         held = positions.get(symbol, 0)
+        if not held and len(positions) >= config.max_positions:
+            continue
         requested = max(desired - held, 0)
         requested -= requested % config.lot_size
         affordable = _affordable_shares(cash, float(row["收盘"]), config)
@@ -288,7 +302,7 @@ def calculate_performance_statistics(nav_data, trades, config):
     """计算组合、基准和回撤统计；无基准时相关字段为 None。"""
     if nav_data.empty:
         raise ValueError("净值曲线为空，无法计算统计指标。")
-    net_values = nav_data["策略净值"].astype(float)
+    net_values = pd.concat([pd.Series([1.0]), nav_data["策略净值"].astype(float)],ignore_index=True)
     returns = net_values.pct_change().dropna()
     periods = max(len(net_values) - 1, 1)
     total_return = float(net_values.iloc[-1] / net_values.iloc[0] - 1)
@@ -316,7 +330,7 @@ def calculate_performance_statistics(nav_data, trades, config):
     return statistics
 
 
-def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
+def run_portfolio_backtest(signal_data, config=None, benchmark_data=None, corporate_actions=None):
     """运行组合回测并返回净值曲线、交易记录和统计结果。
 
     每个交易日只使用当日信号；调用方必须保证该信号是严格样本外、在交易前
@@ -331,12 +345,15 @@ def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
         raise ValueError("启用市场风控或波动率目标时必须提供基准数据。")
 
     cash = float(config.initial_capital)
+    ledger = CorporateActionLedger(corporate_actions)
     positions = {}
     trades = []
     nav_rows = []
+    previous_value = config.initial_capital
     target_exposure = 1.0
     market_state = "正常暴露"
     for day_index, date in enumerate(trading_dates):
+        cash = ledger.start_day(date, positions, cash)
         today = panel[panel["日期"] == date].copy().set_index("股票", drop=False)
         missing_positions = sorted(set(positions) - set(today.index))
         if missing_positions:
@@ -359,11 +376,16 @@ def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
                 trades,
                 target_exposure=target_exposure,
                 reason=trade_reason,
+                ledger=ledger,
+                reference_value=previous_value if "委托参考价" in today else None,
             )
-        portfolio_value = _portfolio_value(cash, positions, today)
+        portfolio_value = _portfolio_value(cash, positions, today) + ledger.receivable_value
+        ledger.end_day(date,positions)
+        previous_value = portfolio_value
         row = {
             "日期": pd.Timestamp(date).strftime("%Y-%m-%d"),
             "现金": round(cash, 6),
+            "应收红利": ledger.receivable_value,
             "持仓数量": len(positions),
             "组合市值": round(portfolio_value, 6),
             "策略净值": portfolio_value / config.initial_capital,
@@ -377,6 +399,9 @@ def run_portfolio_backtest(signal_data, config=None, benchmark_data=None):
     nav_data = pd.DataFrame(nav_rows)
     trades_data = pd.DataFrame(trades, columns=["日期", "股票", "方向", "股数", "成交价格", "费用", "原因"])
     statistics = calculate_performance_statistics(nav_data, trades, config)
+    statistics["公司行为流水"] = ledger.journal
+    statistics["未成交记录"] = ledger.blocked_orders
+    statistics["公司行为口径"] = "输入台账，税后金额情景" if corporate_actions is not None else "未提供公司行为台账，不能作为严格历史回放"
     return nav_data, trades_data, statistics
 
 
@@ -399,7 +424,7 @@ def save_backtest_report(nav_data, trades_data, statistics, output_directory, co
 
 def main():
     parser = argparse.ArgumentParser(description="AStockAI 组合级研究回测")
-    parser.add_argument("signals", help="样本外信号 CSV：日期、股票、收盘、信号，以及可选可买入/可卖出。")
+    parser.add_argument("signals", help="样本外信号 CSV：日期、股票、收盘、信号，以及必需的复权方式=raw、可买入/可卖出。")
     parser.add_argument("--benchmark", help="可选基准 CSV：日期、收盘。")
     parser.add_argument("--output-dir", default="output/portfolio", help="报告输出目录。")
     parser.add_argument("--max-positions", type=int, default=5)

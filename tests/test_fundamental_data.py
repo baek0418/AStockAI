@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import Mock
 from datetime import datetime
 from pathlib import Path
 
@@ -28,35 +29,14 @@ def sample_records():
 
 
 class FundamentalDataTests(unittest.TestCase):
-    def test_collect_writes_traceable_snapshot_only_after_valid_response(self):
-        class Response:
-            def raise_for_status(self):
-                return None
-
-            def __init__(self, records):
-                self.records = records
-
-            def json(self):
-                return {"result": {"data": self.records}}
-
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            directory = Path(temporary_directory)
-            profile = [{"EM2016": "金融-银行", "INDUSTRYCSRC1": "货币金融服务", "MAIN_BUSINESS": "商业银行业务"}]
-            result = collect_fundamental_snapshot(
-                "000001", directory,
-                request_get=lambda url, params, headers, timeout: Response(
-                    profile if "v1/get" in url else sample_records()
-                ),
-            )
-            self.assertEqual(result["status"], "success")
-            saved = json.loads(get_snapshot_file("000001", directory).read_text(encoding="utf-8"))
-            self.assertEqual(saved["最新报告"]["报告期"], "2026-06-30")
-            self.assertEqual(saved["公司与行业画像"]["字段"]["所属行业"], "金融-银行")
-            self.assertIn("cninfo.com.cn", saved["官方核验页"])
-            evidence = summarize_fundamental_evidence(saved)
-            self.assertEqual(evidence["数据状态"], "可用")
-            self.assertTrue(any("归母净利润" in item for item in evidence["事实"]))
-            self.assertTrue(any("主营业务" in item for item in evidence["事实"]))
+    def test_disabled_collection_never_requests_or_writes(self):
+        getter = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            result = collect_fundamental_snapshot("000001", directory, request_get=getter)
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("禁用东方财富", result["message"])
+            self.assertFalse(get_snapshot_file("000001", directory).exists())
+        getter.assert_not_called()
 
     def test_failure_keeps_existing_snapshot(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -144,9 +124,10 @@ class FundamentalDataTests(unittest.TestCase):
                 watchlist, directory, max_age_days=7, request_get=request_get,
                 now=datetime(2026, 8, 27, 10, 0, 0),
             )
-            self.assertEqual(result["已更新"], ["000002"])
+            self.assertEqual(result["已更新"], [])
+            self.assertEqual(result["失败"][0]["code"], "000002")
             self.assertEqual(result["仍有效无需更新"], ["000001"])
-            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(calls), 0)
 
 
 if __name__ == "__main__":

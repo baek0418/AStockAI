@@ -285,7 +285,7 @@ def render_fundamental_research(stock_evidence):
     st.markdown("#### 基本面事实快照（本地）")
     if display["数据状态"] != "可用":
         st.info(display["数据状态"])
-        st.caption("可点击页面顶部的“下载/刷新基本面快照”后再查看；本页不会把缺失数据补成结论。")
+        st.caption("基本面在线下载已暂停，等待替代数据源验证；当前仅展示已有本地快照。")
         return
 
     st.caption(f"报告期：{display['报告期']} ｜ 公告日期：{display['公告日期']}")
@@ -616,7 +616,8 @@ def render_stock_details(stock_record, daily_signal=None, signal_override=None, 
     else:
         st.caption(f"未来 5 日风险范围暂不可用：{risk_range['说明']}")
 
-    if st.button("下载/刷新基本面快照", key=f"fundamentals_{fact_snapshot['股票代码']}"):
+    st.caption("基本面在线下载已暂停：原供应商已禁用，替代来源尚未验证。")
+    if st.button("下载/刷新基本面快照", key=f"fundamentals_{fact_snapshot['股票代码']}", disabled=True):
         with st.spinner("正在下载最近报告期基本面事实…"):
             result = collect_fundamental_snapshot(fact_snapshot["股票代码"])
         if result["status"] == "success":

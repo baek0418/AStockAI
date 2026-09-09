@@ -163,7 +163,7 @@ def _build_portfolio_backtest(portfolio_report):
         statistics = {}
     return {
         "状态": "可用" if statistics else "数据不足",
-        "说明": "严格使用滚动样本外信号，并在下一交易日执行；结果仅供研究。",
+        "说明": report.get("说明") or ("输入经校验，仍为研究回放；不等于策略准入。" if report.get("审计",{}).get("状态") == "validated_inputs" else "旧口径结果：尚未通过历史股票池、公司行为与交易状态复核。"),
         "报告文件": portfolio_report["文件"],
         "策略": report.get("策略", "未提供"),
         "市场基准": report.get("市场基准", "未提供"),

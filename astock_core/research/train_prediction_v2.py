@@ -55,7 +55,10 @@ def create_metadata(dataset, evaluation_data, calibration_info, sklearn_version,
         "训练股票数": int(dataset["股票名称"].nunique()),
         "正样本比例": round(float(dataset[LABEL_COLUMN_V2].mean()), 6),
         "校准": calibration,
-        "滚动验证通过": research_ready,
+        "技术滚动验证通过": research_ready,
+        "滚动验证通过": False,
+        "数据口径准入": False,
+        "历史股票池口径": "当前成分回看历史，存在幸存偏差；仅保留为OHLCV实验基线。",
         "最低要求": {
             "最少训练样本": MIN_TRAIN_SAMPLES,
             "最少滚动窗口": MIN_ROLLING_WINDOWS,
@@ -127,6 +130,8 @@ def train_prediction_v2(project_directory=PROJECT_DIRECTORY, benchmark_name=DEFA
         actual_positive_rate_key="实际跑赢基准率",
         report_title="AStockAI 未来 5 日跑赢市场基准概率研究评估",
     )
+    evaluation_data.setdefault("风险提示", []).append("本基线使用当前股票池及动态前复权历史，未通过历史时点数据准入；指标改善也不能自动准入。")
+    evaluation_data["历史数据口径准入"] = False
     output_directory = project_directory / "output" / "prediction"
     evaluation_json, evaluation_markdown = save_evaluation_report(
         evaluation_data, output_directory, prefix="prediction_outperform_evaluation"

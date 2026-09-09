@@ -1,6 +1,8 @@
 """更新统一股票池中的真实历史行情数据。"""
 
 import json
+from dataclasses import replace
+from astock_core.data.daily_freshness import completed_history, latest_completed_session
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -32,18 +34,11 @@ def get_stock(code):
     except (KeyError, TypeError) as error:
         raise ValueError(f"行情接口未返回 {code} 的历史数据。") from error
 
-    # 少数股票（例如国机重装）不提供 qfqday，但同一响应中仍有完整的
-    # 未复权 day 日线。此时宁可明确回退并保留可用历史，也不把它误报为
-    # "数据不足"；优先级仍始终是前复权数据。
     adjusted_rows = payload.get("qfqday") if isinstance(payload, dict) else None
     if isinstance(adjusted_rows, list) and adjusted_rows:
         return adjusted_rows
 
-    raw_rows = payload.get("day") if isinstance(payload, dict) else None
-    if isinstance(raw_rows, list) and raw_rows:
-        return raw_rows
-
-    raise ValueError(f"行情接口未返回 {code} 的有效 qfqday 或 day 历史数据。")
+    raise ValueError(f"行情接口未返回 {code} 的前复权日线；禁止回退为未复权数据。")
 
 
 def create_history_dataframe(raw_data):
@@ -95,6 +90,8 @@ def _save_stock_record(stock, data_directory, fetch_history=fetch_daily_history)
     result = fetch_history(market_code)
     if not isinstance(result, MarketDataFetchResult):
         raise ValueError("行情数据源未返回可审计的日线结果。")
+    if result.adjustment != "qfq":
+        raise ValueError("正式日线仅接受前复权 qfq；拒绝写入其他或未知口径，保留旧文件。")
     history_data = result.history
     data_file = Path(data_directory) / f"{name}历史.csv"
     temporary_file = data_file.with_suffix(".csv.tmp")
@@ -111,6 +108,7 @@ def _save_stock_record(stock, data_directory, fetch_history=fetch_daily_history)
         "used_fallback": result.used_fallback,
         "request_attempts": result.request_attempts,
         "rows": int(len(history_data)),
+        "latest_date": str(pd.to_datetime(history_data["日期"]).max().date()),
     }
 
 
@@ -160,11 +158,13 @@ def run_update_data(
         raise ValueError("max_attempts 必须是正整数。")
     stocks = list(stock_universe)
     if fetch_history is fetch_daily_history:
+        expected_date = latest_completed_session()
         pacer = RequestPacer(request_interval_seconds)
         retry_policy = RetryPolicy(max_attempts=max_attempts, initial_backoff_seconds=0.5)
 
         def batch_fetch_history(market_code):
-            return fetch_daily_history(market_code, retry_policy=retry_policy, pacer=pacer)
+            result = fetch_daily_history(market_code, retry_policy=retry_policy, pacer=pacer)
+            return replace(result, history=completed_history(result.history, expected_date))
     else:
         batch_fetch_history = fetch_history
 
@@ -216,9 +216,10 @@ def run_update_data(
     success_stocks.sort(key=lambda item: (item["code"], item["name"]))
     failed_stocks.sort(key=lambda item: (item["code"], item["name"]))
 
+    raw_count = sum(item["adjustment"] != "qfq" for item in success_stocks)
     if not failed_stocks:
-        status = "success"
-        message = "行情更新完成"
+        status = "partial" if raw_count else "success"
+        message = "行情已更新，但部分股票回退为未复权日线" if raw_count else "行情更新完成"
     elif success_stocks:
         status = "partial"
         message = "行情部分更新完成"
@@ -243,6 +244,7 @@ def run_update_data(
             "success_count": len(success_stocks),
             "failed_count": len(failed_stocks),
             "fallback_count": sum(item["used_fallback"] for item in success_stocks),
+            "non_qfq_count": raw_count,
             "success_stocks": success_stocks,
             "failed_stocks": failed_stocks,
             "event_log": str(journal.event_file),

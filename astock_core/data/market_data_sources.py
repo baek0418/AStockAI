@@ -7,6 +7,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+import numpy as np
 import threading
 import time
 from typing import Protocol
@@ -117,6 +118,7 @@ def normalize_history(history: pd.DataFrame) -> pd.DataFrame:
     for column in HISTORY_COLUMNS[1:]:
         normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
     invalid = normalized.isna().any(axis=1)
+    invalid |= ~np.isfinite(normalized[HISTORY_COLUMNS[1:]]).all(axis=1)
     invalid |= (normalized[["开盘", "收盘", "最高", "最低"]] <= 0).any(axis=1)
     invalid |= normalized["成交量"] < 0
     invalid |= normalized["最高"] < normalized[["开盘", "收盘", "最低"]].max(axis=1)
@@ -160,60 +162,13 @@ class TencentQfqDailySource:
         return normalize_history(frame)
 
 
-class EastmoneyQfqDailySource:
-    """东方财富前复权日线备用源。"""
-
-    name = "东方财富 qfq kline"
-    adjustment = "qfq"
-    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-
-    def __init__(self, request_get=requests.get):
-        self.request_get = request_get
-
-    @staticmethod
-    def _secid(market_code: str) -> str:
-        code = str(market_code).strip().lower()
-        if len(code) != 8 or code[:2] not in {"sh", "sz"} or not code[2:].isdigit():
-            raise ValueError(f"不支持的 A 股市场代码：{market_code}。")
-        return f"1.{code[2:]}" if code.startswith("sh") else f"0.{code[2:]}"
-
-    def fetch(self, market_code: str) -> pd.DataFrame:
-        response = self.request_get(
-            self.url,
-            params={
-                "secid": self._secid(market_code),
-                "klt": "101",
-                "fqt": "1",
-                "lmt": "600",
-                "fields1": "f1,f2,f3,f4,f5,f6",
-                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-            },
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        response.raise_for_status()
-        try:
-            rows = response.json()["data"]["klines"]
-        except (KeyError, TypeError) as error:
-            raise ValueError(f"东方财富未返回 {market_code} 的前复权日线。") from error
-        if not isinstance(rows, list) or not rows:
-            raise ValueError(f"东方财富未返回 {market_code} 的前复权日线。")
-        values = [str(row).split(",") for row in rows]
-        frame = pd.DataFrame(values)
-        if frame.shape[1] < 6:
-            raise ValueError("东方财富日线字段不足。")
-        frame = frame.iloc[:, :6]
-        frame.columns = HISTORY_COLUMNS
-        return normalize_history(frame)
-
-
 class TencentRawDailySource(TencentQfqDailySource):
-    """腾讯未复权日线，仅供严格价格区间研究的隔离数据快照。"""
+    """腾讯未复权日线；用于原始价格快照或明确留痕的行情回退。"""
 
     name = "腾讯行情 day"
     adjustment = "raw"
     url = "https://web.ifzq.gtimg.cn/appstock/app/kline/kline"
-    source_note = "公开腾讯普通日线接口；未复权 day 序列，仅供收益区间研究快照。"
+    source_note = "公开腾讯普通日线接口；未复权 day 序列，不得当作前复权价格。"
 
     def __init__(self, request_get=requests.get, history_limit=1200):
         if not isinstance(history_limit, int) or history_limit < 600:
@@ -303,50 +258,15 @@ class BaoStockRawDailySource:
         return normalize_history(frame)
 
 
-class EastmoneyRawDailySource(EastmoneyQfqDailySource):
-    """东方财富未复权日线备用源；不会和主源或前复权数据拼接。"""
-
-    name = "东方财富 raw kline"
-    adjustment = "raw"
-
-    def fetch(self, market_code: str) -> pd.DataFrame:
-        response = self.request_get(
-            self.url,
-            params={
-                "secid": self._secid(market_code),
-                "klt": "101",
-                "fqt": "0",
-                "lmt": "600",
-                "fields1": "f1,f2,f3,f4,f5,f6",
-                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-            },
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        response.raise_for_status()
-        try:
-            rows = response.json()["data"]["klines"]
-        except (KeyError, TypeError) as error:
-            raise ValueError(f"东方财富未返回 {market_code} 的未复权日线。") from error
-        if not isinstance(rows, list) or not rows:
-            raise ValueError(f"东方财富未返回 {market_code} 的未复权日线。")
-        values = [str(row).split(",") for row in rows]
-        frame = pd.DataFrame(values)
-        if frame.shape[1] < 6:
-            raise ValueError("东方财富未复权日线字段不足。")
-        frame = frame.iloc[:, :6]
-        frame.columns = HISTORY_COLUMNS
-        return normalize_history(frame)
-
-
 def default_daily_sources() -> tuple[DailyHistorySource, ...]:
-    """默认保持腾讯为主、东方财富为整只股票备用的固定顺序。"""
-    return TencentQfqDailySource(), EastmoneyQfqDailySource()
+    """腾讯前复权优先，BaoStock 前复权备用；失败不改变价格口径。"""
+    from astock_core.data.baostock_qfq import BaoStockQfqDailySource
+    return TencentQfqDailySource(), BaoStockQfqDailySource()
 
 
 def default_raw_daily_sources() -> tuple[DailyHistorySource, ...]:
     """原始价格研究的主备顺序；与正式行情链路完全隔离。"""
-    return TencentRawDailySource(), BaoStockRawDailySource(), EastmoneyRawDailySource()
+    return TencentRawDailySource(), BaoStockRawDailySource()
 
 
 def fetch_daily_history(

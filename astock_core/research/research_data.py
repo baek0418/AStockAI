@@ -8,7 +8,7 @@ import pandas as pd
 
 from astock_core.research.score import calculate_score
 from astock_core.data.stock_universe import create_stock_code_lookup, get_enabled_stock_universe
-from astock_core.research.strategy_backtest import INITIAL_CAPITAL, run_strategy_backtest
+from astock_core.research.strategy_backtest import INITIAL_CAPITAL, LEGACY_BACKTEST_REASON
 from astock_core.research.conservative_candidates import build_conservative_candidates
 from astock_core.analysis.technical_indicators import latest_technical_indicators
 
@@ -97,17 +97,16 @@ def get_snapshot_date(stock_rankings):
 
 
 def create_backtest_snapshot():
-    """运行既有策略回测，并整理报告可直接使用的真实回测结果。"""
-    trades, equity_curve, statistics = run_strategy_backtest()
-
+    """日报保留明确拒绝记录，不生成未经历史口径审核的收益。"""
     return {
+        "状态": "rejected",
         "初始资金": INITIAL_CAPITAL,
-        "策略说明": "每日选择股票池中评分最高且评分不低于70的股票，全仓持有5个后续交易日。",
-        "统计": statistics,
-        "交易记录": trades,
-        "资金曲线文件": "equity_curve.csv",
-        "资金曲线开始日期": equity_curve[0]["日期"],
-        "资金曲线结束日期": equity_curve[-1]["日期"],
+        "策略说明": LEGACY_BACKTEST_REASON,
+        "统计": {},
+        "交易记录": [],
+        "资金曲线文件": None,
+        "资金曲线开始日期": None,
+        "资金曲线结束日期": None,
     }
 
 

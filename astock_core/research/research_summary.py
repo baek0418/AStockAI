@@ -134,6 +134,9 @@ def create_market_status(stock_rankings, risk_stocks):
 
 def create_backtest_summary(backtest_snapshot):
     """读取已有回测统计，生成策略表现标签，不重新执行回测。"""
+    if backtest_snapshot.get("状态") == "rejected" or not backtest_snapshot.get("统计"):
+        return {"状态": "rejected", "策略说明": backtest_snapshot.get("策略说明"),
+                "表现标签": "旧回测已停用，历史口径证据待补齐", "胜率标签": "不提供未经核验的胜率"}
     statistics = backtest_snapshot["统计"]
     cumulative_return = statistics["累计收益率"]
     win_rate = statistics["胜率"]
@@ -163,7 +166,8 @@ def create_backtest_summary(backtest_snapshot):
         "累计收益率": cumulative_return,
         "最大盈利": statistics["最大盈利"],
         "最大亏损": statistics["最大亏损"],
-        "表现标签": performance_label,
+        "状态": "legacy_unverified",
+        "表现标签": "旧口径未核验：" + performance_label,
         "胜率标签": win_rate_label,
     }
 

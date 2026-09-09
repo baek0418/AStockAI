@@ -278,8 +278,9 @@ def audit_price_basis(data_directory, dataset):
         "缺失来源记录数": len(missing),
         "缺失股票代码股票数": missing_code_stock_count,
         "非原始价格记录数": len(non_raw_records),
-        "严格时点价格依据可用": not reasons,
-        "结论": "可用于严格时点区间研究。" if not reasons else "；".join(reasons),
+        "原始价格快照可核对": not reasons,
+        "严格时点价格依据可用": False,
+        "结论": "原始价格来源可核对，但缺少历史修订、公司行为与时点股票池证据，不能认定严格时点可得。" if not reasons else "；".join(reasons),
         "来源样本": records[:10],
     }
 

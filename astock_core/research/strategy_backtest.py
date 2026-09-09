@@ -200,74 +200,15 @@ def print_report(statistics):
     print("========================")
 
 
+LEGACY_BACKTEST_REASON = (
+    "旧评分回测已停用：当前股票池、全区间交集及同收盘信号成交存在偏差，"
+    "且缺少公司行为与交易状态证据。请使用 oos_portfolio_research 的历史输入审计入口。"
+)
+
+
 def run_strategy_backtest():
-    """执行全股票池选最高分股票、全仓持有五日的策略回测。"""
-    project_directory = Path(__file__).parents[2]
-    stock_pool = load_stock_pool(project_directory / "data")
-    trading_dates = get_common_trading_dates(stock_pool)
-
-    if len(trading_dates) < START_DAY_INDEX + HOLDING_DAYS + 1:
-        raise ValueError("历史数据不足，无法从第 30 个交易日开始完成一次回测。")
-
-    current_capital = INITIAL_CAPITAL
-    position = None
-    trades = []
-    equity_curve = []
-
-    with TemporaryDirectory() as temporary_path:
-        temporary_directory = Path(temporary_path)
-
-        for day_index, current_date in enumerate(trading_dates):
-            if day_index < START_DAY_INDEX:
-                continue
-
-            if position is not None:
-                held_history = stock_pool[position["股票"]]
-                current_capital = get_position_value(
-                    position,
-                    held_history,
-                    current_date,
-                )
-
-                if day_index == position["卖出索引"]:
-                    current_capital, trade = close_position(
-                        position,
-                        held_history,
-                        current_date,
-                    )
-                    trades.append(trade)
-                    position = None
-
-                equity_curve.append(create_equity_record(current_date, current_capital))
-                continue
-
-            if day_index + HOLDING_DAYS >= len(trading_dates):
-                equity_curve.append(create_equity_record(current_date, current_capital))
-                continue
-
-            best_stock = find_best_stock(
-                stock_pool,
-                current_date,
-                temporary_directory,
-            )
-
-            if best_stock["评分"] >= BUY_SCORE:
-                selected_history = stock_pool[best_stock["股票"]]
-                position = open_position(
-                    best_stock["股票"],
-                    selected_history,
-                    current_date,
-                    day_index + HOLDING_DAYS,
-                    current_capital,
-                )
-
-            equity_curve.append(create_equity_record(current_date, current_capital))
-
-    final_capital = equity_curve[-1]["资金"]
-    statistics = calculate_statistics(trades, final_capital)
-    save_equity_curve(equity_curve, project_directory / "equity_curve.csv")
-    print_report(statistics)
-    return trades, equity_curve, statistics
+    """禁止继续生成旧口径收益；旧辅助函数仅供历史结果复核。"""
+    raise ValueError(LEGACY_BACKTEST_REASON)
 
 
 if __name__ == "__main__":

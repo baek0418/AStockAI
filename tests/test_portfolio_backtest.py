@@ -6,7 +6,7 @@ from astock_core.portfolio.portfolio_backtest import PortfolioConfig, calculate_
 
 
 def make_panel(rows):
-    return pd.DataFrame(rows)
+    return pd.DataFrame([{"可买入":True,"可卖出":True,"复权方式":"raw",**row} for row in rows])
 
 
 class PortfolioBacktestTests(unittest.TestCase):

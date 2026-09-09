@@ -14,8 +14,6 @@ from astock_core.data.stock_universe import normalize_stock_code
 
 PROJECT_DIRECTORY = Path(__file__).parents[2].resolve()
 FUNDAMENTAL_DIRECTORY = PROJECT_DIRECTORY / "data" / "fundamentals"
-EASTMONEY_FINANCE_URL = "https://datacenter.eastmoney.com/securities/api/data/get"
-EASTMONEY_PROFILE_URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
 SOURCE_NAME = "东方财富公开财务指标接口（聚合数据，须以官方定期报告复核）"
 CNINFO_STOCK_PAGE = "https://www.cninfo.com.cn/new/disclosure/stock?stockCode={code}"
 METRICS = {
@@ -54,44 +52,6 @@ def _security_code(code):
 
 def get_snapshot_file(stock_code, directory=FUNDAMENTAL_DIRECTORY):
     return Path(directory) / f"{normalize_stock_code(stock_code)}_fundamentals.json"
-
-
-def _request_parameters(stock_code):
-    return {
-        "type": "RPT_F10_FINANCE_MAINFINADATA",
-        "sty": "APP_F10_MAINFINADATA",
-        "quoteColumns": "",
-        "filter": f'(SECUCODE="{_security_code(stock_code)}")',
-        "p": 1,
-        "ps": 12,
-        "sr": -1,
-        "st": "REPORT_DATE",
-        "source": "HSF10",
-        "client": "PC",
-    }
-
-
-def _request_headers():
-    return {
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://emweb.securities.eastmoney.com/",
-        "User-Agent": "Mozilla/5.0",
-    }
-
-
-def _profile_request_parameters(stock_code):
-    return {
-        "reportName": "RPT_F10_BASIC_ORGINFO",
-        "columns": "ALL",
-        "quoteColumns": "",
-        "filter": f'(SECUCODE="{_security_code(stock_code)}")',
-        "pageNumber": 1,
-        "pageSize": 1,
-        "sortTypes": "",
-        "sortColumns": "",
-        "source": "HSF10",
-        "client": "PC",
-    }
 
 
 def _number(value):
@@ -161,38 +121,9 @@ def _write_atomically(path, data):
 
 
 def collect_fundamental_snapshot(stock_code, directory=FUNDAMENTAL_DIRECTORY, request_get=requests.get):
-    """显式下载单股财务指标；请求或校验失败时不创建、不覆盖快照。"""
-    code = normalize_stock_code(stock_code)
-    try:
-        response = request_get(
-            EASTMONEY_FINANCE_URL,
-            params=_request_parameters(code),
-            headers=_request_headers(),
-            timeout=15,
-        )
-        response.raise_for_status()
-        snapshot = build_fundamental_snapshot(code, _extract_records(response.json()))
-    except (requests.RequestException, ValueError, TypeError, KeyError) as error:
-        return {"status": "failed", "message": f"下载基本面快照失败：{error}。已有本地快照未被改动。"}
-    try:
-        profile_response = request_get(
-            EASTMONEY_PROFILE_URL,
-            params=_profile_request_parameters(code),
-            headers=_request_headers(),
-            timeout=15,
-        )
-        profile_response.raise_for_status()
-        profile_records = _extract_records(profile_response.json())
-        snapshot["公司与行业画像"] = build_company_profile(profile_records[0])
-    except (requests.RequestException, ValueError, TypeError, KeyError) as error:
-        snapshot["公司与行业画像"] = {"数据状态": f"数据不足：公司与行业画像下载失败：{error}。"}
-    output_file = _write_atomically(get_snapshot_file(code, directory), snapshot)
-    return {
-        "status": "success",
-        "message": "基本面快照已下载；请结合巨潮资讯官方定期报告复核。",
-        "file": str(output_file),
-        "snapshot": snapshot,
-    }
+    """旧供应商已禁用；保留本地快照，替代来源验证前不联网。"""
+    normalize_stock_code(stock_code)
+    return {"status": "failed", "message": "已按数据源策略禁用东方财富接口；基本面下载暂停，已有本地快照未改动。请通过官方披露核验。"}
 
 
 def load_fundamental_snapshot(stock_code, directory=FUNDAMENTAL_DIRECTORY):
