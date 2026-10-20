@@ -1,11 +1,13 @@
 """本机后台任务状态与编排测试，不启动真实进程或网络请求。"""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from astock_core.runtime.background_tasks import (
+    _pid_is_running,
     get_active_task,
     read_task_log_tail,
     run_background_task,
@@ -20,6 +22,31 @@ class FakeProcess:
 
 
 class BackgroundTaskTests(unittest.TestCase):
+    def test_process_probe_keeps_current_process_alive(self):
+        self.assertTrue(_pid_is_running(os.getpid()))
+        self.assertFalse(_pid_is_running(-1))
+
+    def test_first_setup_disables_ai_email_and_reports_pipeline_failure(self):
+        for successful in (True, False):
+            with self.subTest(successful=successful), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "watchlist.example.json").write_text('{"stocks": []}', encoding="utf-8")
+                from setup_local import run_first_setup
+                calls = []
+
+                def pipeline(**kwargs):
+                    calls.append(kwargs)
+                    return {"success": successful}
+
+                def initialize(project):
+                    return run_first_setup(project, pipeline_runner=pipeline)
+
+                with patch("setup_local.run_first_setup", side_effect=initialize):
+                    result = run_background_task("first_setup", "setup-task", root)
+                self.assertEqual(calls, [{"no_ai": True, "send_email": False}])
+                self.assertEqual(result["状态"], "success" if successful else "failed")
+                self.assertTrue((root / "watchlist.json").is_file())
+
     def test_start_persists_queued_task_and_launches_isolated_runner(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1183,6 +1183,33 @@ def render_simulator(quant_snapshot):
         st.dataframe(transactions, use_container_width=True, hide_index=True)
 
 
+def render_first_run():
+    """干净安装时提供可重试的显式初始化入口。"""
+    st.header("欢迎使用 AStockAI")
+    st.info("还没有本地行情快照。点击下方按钮，下载示例股票池行情并生成研究快照和日报。")
+    st.caption("无需 API Key。首次初始化需要联网，通常数分钟；不调用 AI、不发送邮件。失败时保留已有数据，可再次尝试。")
+    active_task = get_active_task(PROJECT_DIRECTORY)
+    if st.button("初始化本地数据", type="primary", disabled=active_task is not None):
+        result = start_background_task("first_setup", PROJECT_DIRECTORY)
+        if result["status"] == "started":
+            st.success(result["message"])
+            st.rerun()
+        else:
+            st.error(result["message"])
+
+    @st.fragment(run_every=3)
+    def setup_status():
+        render_background_task_status()
+        if find_latest_snapshot_file(OUTPUT_DIRECTORY, "quant_snapshot") is not None:
+            if get_active_task(PROJECT_DIRECTORY) is None:
+                st.rerun(scope="app")
+
+    setup_status()
+    if st.button("刷新页面"):
+        st.rerun()
+    st.caption("基本面在线下载和研究池自动刷新暂时停用，等待替代数据源验证。正式日线只接受前复权，禁止调用东方财富接口。")
+
+
 def main():
     """启动本机 Streamlit 页面。"""
     if st is None:
@@ -1190,6 +1217,13 @@ def main():
 
     st.set_page_config(page_title="AStockAI 本地查询", page_icon="📈", layout="wide")
     st.title("AStockAI 本地 Web 查询窗口")
+    from setup_local import ensure_local_watchlist
+
+    try:
+        ensure_local_watchlist(PROJECT_DIRECTORY)
+    except (OSError, ValueError) as error:
+        st.error(f"本地配置初始化失败：{error}")
+        return
     st.caption("已有快照只读展示；非快照股票仅在明确点击后下载单股日线。不会自动发送邮件或运行回测；研究总览仅在显式刷新后重建本地研究产物。")
     dashboard = load_research_dashboard_cached(
         str(PROJECT_DIRECTORY), research_dashboard_source_mtime(PROJECT_DIRECTORY)
@@ -1197,8 +1231,9 @@ def main():
 
     quant_file = find_latest_snapshot_file(OUTPUT_DIRECTORY, "quant_snapshot")
     if quant_file is None:
-        st.warning("未找到 quant_snapshot；单股票与日报页面暂不可用，但仍可查看已有研究总览。")
-        render_research_dashboard(dashboard)
+        render_first_run()
+        with st.expander("查看已有系统状态"):
+            render_research_dashboard(dashboard)
         return
     watch_snapshot_file = find_latest_snapshot_file(OUTPUT_DIRECTORY, "watchlist_snapshot")
     if watch_snapshot_file is None:

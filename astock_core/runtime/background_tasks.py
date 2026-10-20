@@ -14,7 +14,7 @@ from astock_core.research.research_refresh import refresh_research_artifacts
 from astock_core.data.update_data import run_update_data
 
 
-TASK_TYPES = {"data_update", "research_refresh"}
+TASK_TYPES = {"first_setup", "data_update", "research_refresh"}
 ACTIVE_STATUSES = {"queued", "running"}
 
 
@@ -69,6 +69,24 @@ def list_task_statuses(project_directory, limit=8):
 def _pid_is_running(pid):
     if not isinstance(pid, int) or pid <= 0:
         return False
+    if os.name == "nt":
+        # Windows 的 os.kill(pid, 0) 不具备 POSIX 的只读探测语义。
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5  # 无权读取时保守视为仍活跃。
+        try:
+            code = wintypes.DWORD()
+            return not kernel.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259
+        finally:
+            kernel.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -136,7 +154,7 @@ def start_background_task(task_type, project_directory, process_factory=subproce
         "日志文件": str(task_log_file(project_directory, task_id)),
     }
     _write_json_atomically(task_status_file(project_directory, task_id), initial)
-    python_executable = project_directory / ".venv" / "bin" / "python"
+    python_executable = project_directory / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     executable = str(python_executable) if python_executable.is_file() else sys.executable
     command = [executable, "background_task_runner.py", task_type, task_id]
     try:
@@ -201,7 +219,21 @@ def run_background_task(task_type, task_id, project_directory):
         raise ValueError("未知后台任务类型。")
     update_task_status(project_directory, task_id, 状态="running", 说明="任务正在运行。")
     try:
-        if task_type == "data_update":
+        if task_type == "first_setup":
+            from setup_local import run_first_setup
+
+            update_task_status(project_directory, task_id, 说明="正在初始化行情、快照和日报；首次运行可能需要数分钟。")
+
+            def initialize():
+                result = run_first_setup(project_directory)
+                return {
+                    "status": "success" if result["success"] else "failed",
+                    "message": "初始化完成。" if result["success"] else "初始化未完全成功，请查看任务日志；已有文件已保留，可重试。",
+                }
+
+            steps = [_run_step("首次数据初始化", initialize)]
+            boundary = "显式下载行情并生成快照和日报；不调用 AI、不发送邮件、不执行交易。"
+        elif task_type == "data_update":
             update_task_status(
                 project_directory, task_id, 步骤=[{"步骤": "股票日线更新", "状态": "running", "说明": "正在请求股票日线。"}]
             )
