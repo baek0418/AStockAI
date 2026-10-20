@@ -11,7 +11,7 @@ def latest_completed_session(now=None):
     current = now or datetime.now(ZoneInfo("Asia/Shanghai"))
     if current.tzinfo is not None:
         current = current.astimezone(ZoneInfo("Asia/Shanghai"))
-    holidays = json.loads((Path(__file__).parents[2] / "config/a_share_market_holidays.json").read_text())["holidays"]
+    holidays = json.loads((Path(__file__).parents[2] / "config/a_share_market_holidays.json").read_text(encoding="utf-8"))["holidays"]
     day = current.date()
     # 为收盘后的公开源更新留出时间。
     if current.time() < time(15, 30):

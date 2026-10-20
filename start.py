@@ -12,11 +12,20 @@ import venv
 PROJECT = Path(__file__).resolve().parent
 
 
+def configure_console():
+    if os.name == "nt":
+        os.environ.setdefault("PYTHONUTF8", "1")
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def environment_python(project=PROJECT):
     return Path(project) / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def prepare_environment(project=PROJECT, reinstall=False):
+    configure_console()
     project = Path(project)
     python = environment_python(project)
     if not python.is_file():
@@ -38,6 +47,7 @@ def prepare_environment(project=PROJECT, reinstall=False):
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="安装依赖并启动 AStockAI 本地工作台。")
     parser.add_argument("--install-only", action="store_true", help="只安装依赖，不启动网页。")
     parser.add_argument("--reinstall", action="store_true", help="重新检查并安装 requirements.txt 中的依赖。")

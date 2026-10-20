@@ -54,7 +54,7 @@ class DailyFreshnessTests(unittest.TestCase):
                 output = save_pipeline_status({'run_id': 'test', 'started_at': '', 'finished_at': '',
                                               'status': 'success', 'duration': 0, 'steps': []})
             self.assertEqual(output, root / 'output/pipeline_status.json')
-            self.assertEqual(json.loads(output.read_text())['run_id'], 'test')
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))['run_id'], 'test')
 
     def test_default_sources_have_no_eastmoney_or_raw_fallback(self):
         from astock_core.data.market_data_sources import default_daily_sources, default_raw_daily_sources
