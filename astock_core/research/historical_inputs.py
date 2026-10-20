@@ -38,7 +38,7 @@ def load_historical_inputs(project_directory):
     manifest_file = root / 'manifest.json'
     if not manifest_file.is_file():
         raise ValueError('缺少 data/research_execution/manifest.json：不能用当前成分股、前复权价格代替历史股票池及原始成交证据。')
-    manifest = json.loads(manifest_file.read_text())
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
     if manifest.get('version') != 1 or manifest.get('corporate_actions_complete') is not True:
         raise ValueError('研究输入版本无效，或尚未明确核对公司行为完整性。')
     frames, hashes = {}, {'manifest.json': sha256(manifest_file)}

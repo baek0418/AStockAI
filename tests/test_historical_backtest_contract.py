@@ -49,7 +49,7 @@ def write_bundle(root, mutate=None):
         target=directory/f'{key}.csv'
         frame.to_csv(target,index=False)
         manifest['files'][key]={'path':target.name,'sha256':sha256(target),'source':'合成测试，不是实际历史'}
-    (directory/'manifest.json').write_text(json.dumps(manifest))
+    (directory/'manifest.json').write_text(json.dumps(manifest), encoding="utf-8")
     return dates
 
 
@@ -96,7 +96,7 @@ class HistoricalInputTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);write_bundle(root)
             p=root/'data/research_execution/prices.csv'
-            p.write_text(p.read_text()+'\n')
+            p.write_text(p.read_text(encoding="utf-8")+'\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError,'校验值'):
                 load_historical_inputs(root)
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,7 +109,7 @@ class HistoricalInputTests(unittest.TestCase):
             result=run_oos_portfolio_research(Path(tmp))
             sklearn.assert_not_called()
             self.assertEqual(result['status'],'insufficient')
-            saved=json.loads(Path(result['metadata_file']).read_text())
+            saved=json.loads(Path(result['metadata_file']).read_text(encoding="utf-8"))
             self.assertEqual(saved['状态'],'rejected')
             self.assertEqual(saved['组合统计'],{})
 
@@ -124,7 +124,7 @@ class HistoricalInputTests(unittest.TestCase):
             self.assertEqual(result['status'],'success',result)
             trades=pd.read_csv(result['trades_file'])
             self.assertAlmostEqual(trades.iloc[0]['成交价格'],10+np.sin(71)*.1+71*.01,places=5)
-            saved=json.loads(Path(result['metadata_file']).read_text())
+            saved=json.loads(Path(result['metadata_file']).read_text(encoding="utf-8"))
             self.assertEqual(saved['审计']['状态'],'validated_inputs')
 
 

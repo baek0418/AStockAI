@@ -50,10 +50,10 @@ def main():
             record.update(status='received',**payload)
         except (ValueError,subprocess.TimeoutExpired) as error:
             record.update(status='failed',error=str(error))
-        (output/f'{kind}_{parameter}.json').write_text(json.dumps(record,ensure_ascii=False,indent=2))
+        (output/f'{kind}_{parameter}.json').write_text(json.dumps(record,ensure_ascii=False,indent=2), encoding="utf-8")
         summary.append({k:v for k,v in record.items() if k != 'rows'}|{'row_count':len(record.get('rows',[]))})
         print(json.dumps(summary[-1],ensure_ascii=False),flush=True)
-    (output/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+    (output/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2), encoding="utf-8")
     print(output)
 
 

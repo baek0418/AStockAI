@@ -22,7 +22,7 @@ def main():
     records = []
     for stock in get_enabled_stock_universe():
         metadata_file = root / 'data/provenance' / f"{stock['code']}.json"
-        if not metadata_file.exists() or json.loads(metadata_file.read_text()).get('复权方式') != 'raw':
+        if not metadata_file.exists() or json.loads(metadata_file.read_text(encoding="utf-8")).get('复权方式') != 'raw':
             continue
         record = {'code':stock['code'],'name':stock['name']}
         try:
@@ -59,7 +59,7 @@ def main():
             temporary.replace(original)
         record['status'] = 'restored'
     manifest = {'expected_date':expected,'stocks':records,'restored':sum(r['status']=='restored' for r in records),'failed':sum(r['status']=='failed' for r in records)}
-    (folder/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
+    (folder/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2), encoding="utf-8")
     print('MANIFEST',folder/'manifest.json',flush=True)
     return int(manifest['failed'] > 0)
 

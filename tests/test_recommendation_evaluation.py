@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -24,7 +25,13 @@ class RecommendationEvaluationTests(unittest.TestCase):
             # 使用真实股票名称，使评估仅加载当前股票池中的三只测试文件。
             for name, multiplier in (("贵州茅台", 1.0), ("宁德时代", 1.1), ("招商银行", 0.9)):
                 write_history(data / f"{name}历史.csv", 20 + np.arange(130) * multiplier * 0.08)
-            report = evaluate_recommendations(data, market)
+            # 干净克隆没有个人 watchlist.json；测试股票池完全由夹具提供。
+            with patch("astock_core.research.recommendation_evaluation.get_enabled_stock_universe", return_value=[
+                {"name": "贵州茅台", "code": "600519"},
+                {"name": "宁德时代", "code": "300750"},
+                {"name": "招商银行", "code": "600036"},
+            ]):
+                report = evaluate_recommendations(data, market)
             self.assertTrue(report["窗口"])
             self.assertIsNotNone(report["20日研究优先Top3汇总"])
             self.assertIsNotNone(report["综合评分Top3汇总"])

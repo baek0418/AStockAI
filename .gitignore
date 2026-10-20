@@ -28,3 +28,8 @@ AStockAI晨报_*.md
 
 # Vendored third-party working copies
 external/
+
+# Unrelated design working copies and temporary slide assets
+/figwright/
+/.codex_ppt_build/
+/.ppt_invite_assets/

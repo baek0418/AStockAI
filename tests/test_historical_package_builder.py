@@ -25,7 +25,7 @@ class HistoricalPackageBuilderTests(unittest.TestCase):
         evidence={'membership_availability_verified':True,'execution_states_complete':True,
                   'corporate_actions_complete':True,'universe_size':1,
                   'sources':{key:'合成测试证据' for key in ('calendar','membership','prices','corporate_actions')}}
-        (source/'evidence.json').write_text(json.dumps(evidence))
+        (source/'evidence.json').write_text(json.dumps(evidence), encoding="utf-8")
         return source
 
     def test_publishes_only_after_formal_loader_accepts_bundle(self):
@@ -38,8 +38,8 @@ class HistoricalPackageBuilderTests(unittest.TestCase):
     def test_missing_evidence_never_creates_formal_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); source=self.make_candidate(root)
-            evidence=json.loads((source/'evidence.json').read_text()); evidence['execution_states_complete']=False
-            (source/'evidence.json').write_text(json.dumps(evidence))
+            evidence=json.loads((source/'evidence.json').read_text(encoding="utf-8")); evidence['execution_states_complete']=False
+            (source/'evidence.json').write_text(json.dumps(evidence), encoding="utf-8")
             with self.assertRaisesRegex(ValueError,'证据声明未通过'):
                 build_strict_package(root,source)
             self.assertFalse((root/'data/research_execution').exists())
@@ -49,9 +49,9 @@ class HistoricalPackageBuilderTests(unittest.TestCase):
             root=Path(tmp)
             (root/'summary.json').write_text(json.dumps([
                 {'query':'membership','status':'received'}, {'query':'status','status':'received'},
-                {'query':'dividend','status':'received'}]))
+                {'query':'dividend','status':'received'}]), encoding="utf-8")
             for date,codes in [('2024-01-01',['a','b']),('2025-01-01',['b','c'])]:
-                (root/f'membership_{date}.json').write_text(json.dumps({'rows':[{'code':c} for c in codes]}))
+                (root/f'membership_{date}.json').write_text(json.dumps({'rows':[{'code':c} for c in codes]}), encoding="utf-8")
             report=audit_probe_directory(root)
             self.assertFalse(report['可发布正式包'])
             self.assertEqual(report['已验证能力']['两期样本各侧成分变化数'],1)

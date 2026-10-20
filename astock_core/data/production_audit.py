@@ -20,7 +20,7 @@ def run_audit():
         try:
             frame = pd.read_csv(root / 'data' / f"{stock['name']}历史.csv")
             completed_history(frame, expected)
-            metadata = json.loads((root / 'data/provenance' / f"{stock['code']}.json").read_text())
+            metadata = json.loads((root / 'data/provenance' / f"{stock['code']}.json").read_text(encoding="utf-8"))
             if metadata['日期范围'][-1] != expected:
                 raise ValueError('来源记录日期与完整交易日不一致')
             record.update(status='success', adjustment=metadata['复权方式'], source=metadata['数据源'], latest_date=expected)
@@ -44,7 +44,7 @@ def run_audit():
     target = root / 'output/data_production_status.json'
     target.parent.mkdir(exist_ok=True)
     temporary = target.with_suffix('.json.tmp')
-    temporary.write_text(json.dumps(result,ensure_ascii=False,indent=2))
+    temporary.write_text(json.dumps(result,ensure_ascii=False,indent=2), encoding="utf-8")
     temporary.replace(target)
     return result
 

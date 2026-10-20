@@ -31,30 +31,69 @@ Local A-share research workspace with traceable market data, portfolio tracking,
 
 ## 第一次使用：照着做即可
 
-需要 Python 3.10 或更高版本，以及能访问公开行情服务的网络。
+需要 **Python 3.10+（推荐 3.12）**，支持 macOS、Linux 和 Windows。核心功能无需 API Key，也无需邮箱配置。首次安装依赖和下载行情需要联网。
 
 ```bash
 git clone https://github.com/baek0418/AStockAI.git
 cd AStockAI
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python setup_local.py
-.venv/bin/streamlit run app.py
+python3 start.py
 ```
 
-浏览器打开终端显示的本机地址（通常是 `http://127.0.0.1:8501`）。首次初始化会创建你的本地空关注列表，并下载股票池的日线、生成量化快照和日报；通常需要数分钟。它**不会**调用 AI、发送邮件或读取券商账户。
+**Windows** 在终端使用 `py -3 start.py`。不使用 Git 也可以从 GitHub 的 **Code → Download ZIP** 下载解压，在项目文件夹打开终端运行启动命令。
 
-如果初始化中断，网络恢复后再次执行下面这条命令即可；已有的本地数据不会被清空：
+1. 启动器自动创建 `.venv`、安装依赖并启动网页，无需手动激活虚拟环境。
+2. 打开终端显示的地址，默认 [http://127.0.0.1:8501](http://127.0.0.1:8501)。
+3. 在欢迎页点击 **初始化本地数据**，下载内置 10 只示例股票的日线，生成量化快照和日报。通常需要数分钟，可查看后台任务日志。
+4. 初始化结束后页面自动进入工作台；部分下载失败时查看日志并重试，旧文件会保留。也可点击“刷新页面”查看已生成的内容。
+
+启动网页不会自动下载行情、调用 AI 或发送邮件。首次打开只创建本地空关注列表；下载必须点击按钮。内置股票池仅为功能示例，不是推荐名单。
+
+以后仍运行同一条启动命令；按 **Ctrl+C** 停止。启动器在依赖清单变化时重新安装依赖；手动修复环境可运行 `python3 start.py --reinstall`。端口被占用时使用 `python3 start.py --port 8502`。
+
+<details>
+<summary>手动安装或无界面初始化</summary>
+
+macOS / Linux：
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python setup_local.py
+.venv/bin/python -m streamlit run app.py
 ```
+
+Windows PowerShell（不需要修改执行策略）：
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe setup_local.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+`setup_local.py` 可以重复运行，不清空已有关注列表或数据，不调用 AI、不发送邮件。只想提前安装依赖可运行 `python3 start.py --install-only`。
+
+</details>
+
+### 常见问题
+
+| 情况 | 处理方法 |
+|---|---|
+| 找不到 `python3` 或 `py` | 安装 Python，Windows 安装时勾选 Add Python to PATH，然后重新打开终端 |
+| Linux 提示缺少 `venv` / `ensurepip` | 安装发行版对应的 `python3-venv` 包后重试 |
+| 安装依赖失败 | 检查终端中的 pip 错误和网络配置，修复后重新运行启动命令；不会标记失败安装为完成 |
+| 初始化失败或数据较旧 | 查看欢迎页任务日志或系统状态；检查公开行情服务和本机代理配置，恢复后重试 |
+| 未配置某年的交易日历 | 根据交易所公布的安排更新 `config/a_share_market_holidays.json`；系统不会自行猜测休市日期 |
+| 想更新项目 | 备份本地数据后执行 `git pull --ff-only`，再次运行启动命令；ZIP 用户将新代码解压到新目录，按下文迁移数据 |
+
+备份或迁移时，按需复制 `watchlist.json`、`data/`（含持仓与模拟仓）、`output/`、`models/` 和个人 `.env` 到新项目目录；不要复制旧 `.venv`，在新目录重新运行启动命令。不要将这些个人文件上传 GitHub。
 
 ## 项目目录
 
 根目录只保留直接使用的入口：
 
-- `app.py`：启动网页。
+- `start.py`：跨平台安装依赖并启动网页（推荐入口）。
+- `app.py`：Streamlit 网页。
 - `setup_local.py`：首次初始化本地数据。
 - `pipeline.py`：手动执行完整的数据、研究和日报流程。
 - `background_task_runner.py`：网页后台任务入口，无需手动运行。
@@ -63,7 +102,7 @@ python3 -m venv .venv
 
 ### 为什么刚下载时页面内容较少？
 
-这是刻意的隐私设计。GitHub 不包含任何人的行情快照、日报、模型、持仓、关注列表或邮箱配置。下载项目后，先运行 `setup_local.py` 才会在**你自己的电脑**生成这些内容。持仓管理中的账户、成本和数量也只保存在 `data/portfolio.json`，不会上传 GitHub。
+这是刻意的隐私设计。GitHub 不包含任何人的行情快照、日报、模型、持仓、关注列表或邮箱配置。下载项目后，在欢迎页点击初始化或运行 `setup_local.py`，才会在**你自己的电脑**生成这些内容。持仓管理中的账户、成本和数量也只保存在 `data/portfolio.json`，不会上传 GitHub。
 
 ## 日常使用
 
@@ -118,24 +157,11 @@ cp .env.example .env
 
 仓库不会包含 API 密钥、SMTP 密码、邮箱地址、个人关注列表、本地行情数据、模型文件、日志、日报或打包产物；它们均由 `.gitignore` 排除。本项目以 [MIT License](LICENSE) 发布。
 
-## 数据生产与故障检查
+## 数据来源与维护
 
-手动刷新行情、基准、研究快照和日报（不调用 AI、不发送邮件）：
+正式日线使用腾讯前复权，失败后尝试 BaoStock 0.9.3 前复权；均失败则保留旧文件并记录失败。**禁止请求任何东方财富接口，包括包装库和备用源。** 原始价格研究使用隔离目录，不覆盖正式行情。基本面在线下载与研究池自动刷新暂时停用。
 
-```bash
-.venv/bin/python pipeline.py --no-ai
-```
-
-正式股票和指数日线仅保存最近已结束交易日的数据。北京时间 15:30 前按上一交易日校验，周末与休市日按 `config/a_share_market_holidays.json` 回溯；未配置年份会明确报错。接口返回的盘中当日日线不会写入正式日线。响应日期落后时保留原文件并记录失败，需进一步核对停牌或数据源延迟，不能当作更新成功。
-
-正式日线优先使用腾讯前复权，失败后尝试 BaoStock 0.9.3 前复权；两者均失败则保留旧文件，不回退到未复权数据。东方财富所有联网入口已移除。原始价格研究仍使用隔离目录。更新采用限速与有限重试；指数请求也会重试暂时性错误。检查 `output/pipeline_status.json` 中个股失败明细、最新行情日期和基准结果，具体请求错误见 `logs/market_data_update_<日期>.jsonl`。部分失败时即使日报生成成功，流水线也不会显示全部成功。来源留痕的更新时间表示下载时间，日期范围表示行情覆盖日期，两者含义不同。
-
-离线复核所有正式股票及两个基准的日期、来源和未复权数量：`.venv/bin/python -m astock_core.data.production_audit`。结果写入 `output/data_production_status.json`。正式股票写入入口会拒绝非 `qfq` 结果；审计发现历史遗留的未复权记录或日期落后时，标记为部分完成。
-
-数据源限制：禁止使用东方财富接口（包括备用源）。基本面下载和研究池自动刷新暂时停用，待替代来源验证后恢复；已有本地文件及其真实来源记录保留，不能据此声称完成新下载。
-
-
-BaoStock 备用源逐行检查股票代码与 `adjustflag=2`，成交量由股统一换算为手。每次查询在独立进程中执行，25 秒超时即停止，避免旧客户端或服务故障挂住整个批次。已有未复权误覆盖文件可运行 `.venv/bin/python -m scripts.recover_qfq` 恢复；工具仅处理来源标记为 `raw` 的正式股票，先在 `output/recovery/` 下载、核验并备份，再替换完整历史和来源记录。恢复后需重新生成快照和日报。
+[数据来源与故障检查](docs/data_sources.md) 包含生产日期校验、日志位置、离线审计和历史文件恢复说明。[开发与贡献指南](CONTRIBUTING.md) 包含目录职责、验证和提交要求。
 
 ## 参与改进
 
