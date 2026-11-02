@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from time import sleep
 from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,6 +21,10 @@ KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
 MINUTE_URL = "https://web.ifzq.gtimg.cn/appstock/app/minute/query"
 CSI300_CODE = "sh000300"
 QUOTE_BATCH_SIZE = 400
+QUOTE_TIMEOUT_SECONDS = 6
+DETAIL_TIMEOUT_SECONDS = 10
+REQUEST_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = (0.5, 1.5)
 
 
 def strategy_catalog():
@@ -210,19 +215,36 @@ def evaluate_candidate(quote, daily, minute, index_change_pct):
     }
 
 
-def _request_text(request_get, url, **kwargs):
-    response = request_get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20, **kwargs)
-    response.raise_for_status()
+def _request_with_retries(request_get, url, *, timeout, sleep_fn=sleep, **kwargs):
+    """请求公开行情；只重试网络/HTTP 层的临时失败，并保留最后错误。"""
+    last_error = None
+    for attempt in range(REQUEST_ATTEMPTS):
+        try:
+            response = request_get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as error:
+            last_error = error
+            if attempt < REQUEST_ATTEMPTS - 1:
+                sleep_fn(RETRY_BACKOFF_SECONDS[attempt])
+    raise last_error
+
+
+def _request_text(request_get, url, *, sleep_fn=sleep, **kwargs):
+    response = _request_with_retries(
+        request_get, url, timeout=QUOTE_TIMEOUT_SECONDS, sleep_fn=sleep_fn, **kwargs
+    )
     return response.content.decode("gbk", errors="replace")
 
 
-def _request_json(request_get, url, **kwargs):
-    response = request_get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20, **kwargs)
-    response.raise_for_status()
+def _request_json(request_get, url, *, sleep_fn=sleep, **kwargs):
+    response = _request_with_retries(
+        request_get, url, timeout=DETAIL_TIMEOUT_SECONDS, sleep_fn=sleep_fn, **kwargs
+    )
     return response.json()
 
 
-def run_afternoon_momentum_screen(catalog, request_get=requests.get, now=None):
+def run_afternoon_momentum_screen(catalog, request_get=requests.get, now=None, sleep_fn=sleep):
     """执行一次全沪深市场午后筛选；网络失败不会用旧快照替代实时条件。"""
     current = now or datetime.now(ZoneInfo("Asia/Shanghai"))
     if current.weekday() >= 5 or current.time() < time(14, 30):
@@ -236,28 +258,62 @@ def run_afternoon_momentum_screen(catalog, request_get=requests.get, now=None):
     market_codes = list(dict.fromkeys(market_codes))
     if len(market_codes) < 3000:
         return {"status": "failed", "message": "本地A股代码目录不完整，无法进行全市场筛选。", "retrieved_at": current.isoformat()}
-    try:
-        quote_texts = []
-        for start in range(0, len(market_codes), QUOTE_BATCH_SIZE):
-            quote_texts.append(_request_text(request_get, QUOTE_URL + ",".join(market_codes[start:start + QUOTE_BATCH_SIZE])))
-        quotes = parse_quote_payload("\n".join(quote_texts))
-    except requests.RequestException as error:
-        return {"status": "failed", "message": f"实时行情请求失败：{error}。", "retrieved_at": current.isoformat()}
+    quote_texts = []
+    batch_count = (len(market_codes) + QUOTE_BATCH_SIZE - 1) // QUOTE_BATCH_SIZE
+    for batch_number, start in enumerate(range(0, len(market_codes), QUOTE_BATCH_SIZE), start=1):
+        try:
+            quote_texts.append(_request_text(
+                request_get,
+                QUOTE_URL + ",".join(market_codes[start:start + QUOTE_BATCH_SIZE]),
+                sleep_fn=sleep_fn,
+            ))
+        except requests.RequestException as error:
+            return {
+                "status": "failed",
+                "message": f"实时行情第 {batch_number}/{batch_count} 批在 {REQUEST_ATTEMPTS} 次尝试后仍失败：{error}。",
+                "retrieved_at": current.isoformat(),
+                "universe": "沪深A股",
+                "universe_count": len(market_codes),
+                "failed_batches": [{"batch": batch_number, "total": batch_count, "error": str(error)}],
+            }
+    quotes = parse_quote_payload("\n".join(quote_texts))
     # quote_map 以上必须逐批解析，避免将行情文本误当成字典。
     if not quotes:
         return {"status": "failed", "message": "实时行情未返回可解析的全市场记录。", "retrieved_at": current.isoformat()}
     index_quote = {}
     try:
-        index_quote = next(iter(parse_quote_payload(_request_text(request_get, QUOTE_URL + CSI300_CODE)).values()), {})
+        index_quote = next(iter(parse_quote_payload(
+            _request_text(request_get, QUOTE_URL + CSI300_CODE, sleep_fn=sleep_fn)
+        ).values()), {})
         index_change_pct = index_quote.get("change_pct")
-    except requests.RequestException:
-        index_change_pct = None
+    except requests.RequestException as error:
+        return {
+            "status": "failed",
+            "message": f"沪深300基准在 {REQUEST_ATTEMPTS} 次尝试后仍不可用，无法验证相对强弱：{error}。",
+            "retrieved_at": current.isoformat(),
+            "universe": "沪深A股",
+            "universe_count": len(market_codes),
+        }
+    if index_change_pct is None:
+        return {
+            "status": "failed",
+            "message": "沪深300基准未返回可用涨跌幅，无法验证相对强弱。",
+            "retrieved_at": current.isoformat(),
+            "universe": "沪深A股",
+            "universe_count": len(market_codes),
+        }
     initial = [quote for quote in quotes.values() if initial_filter(quote)]
     evaluated = []
     for quote in initial:
         try:
-            daily_payload = _request_json(request_get, KLINE_URL, params={"param": f"{quote['market_code']},day,,,60,qfq"})
-            minute_payload = _request_json(request_get, MINUTE_URL, params={"code": quote["market_code"]})
+            daily_payload = _request_json(
+                request_get, KLINE_URL, sleep_fn=sleep_fn,
+                params={"param": f"{quote['market_code']},day,,,60,qfq"},
+            )
+            minute_payload = _request_json(
+                request_get, MINUTE_URL, sleep_fn=sleep_fn,
+                params={"code": quote["market_code"]},
+            )
             evaluated.append(evaluate_candidate(
                 quote,
                 daily_evidence(daily_payload, quote["market_code"]),
