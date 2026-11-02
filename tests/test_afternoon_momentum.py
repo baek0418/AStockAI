@@ -4,6 +4,8 @@ import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import requests
+
 from astock_core.strategies.afternoon_momentum import (
     daily_evidence,
     evaluate_candidate,
@@ -108,6 +110,57 @@ class AfternoonMomentumTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["universe_count"], 3000)
         self.assertEqual([item["股票代码"] for item in result["candidates"]], ["000001"])
+
+    def test_quote_batch_retries_a_transient_connection_error(self):
+        class Response:
+            def __init__(self, text=None, payload=None):
+                self.content = (text or "").encode("gbk")
+                self.payload = payload
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self.payload
+
+        quote_calls = 0
+
+        def request_get(url, **kwargs):
+            nonlocal quote_calls
+            if "qt.gtimg.cn" in url:
+                quote_calls += 1
+                if quote_calls == 1:
+                    raise requests.ConnectionError("temporary network failure")
+                return Response(text=quote_payload("-1.00") if url.endswith("sh000300") else quote_payload())
+            if "fqkline" in url:
+                return Response(payload=daily_payload())
+            return Response(payload=minute_payload())
+
+        catalog = [{"code": f"{index:06d}"} for index in range(1, 3001)]
+        result = run_afternoon_momentum_screen(
+            catalog,
+            request_get=request_get,
+            now=datetime(2026, 9, 2, 15, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+            sleep_fn=lambda _: None,
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertGreaterEqual(quote_calls, 2)
+
+    def test_quote_batch_failure_records_batch_audit(self):
+        def request_get(url, **kwargs):
+            raise requests.ConnectionError("network unavailable")
+
+        catalog = [{"code": f"{index:06d}"} for index in range(1, 3001)]
+        result = run_afternoon_momentum_screen(
+            catalog,
+            request_get=request_get,
+            now=datetime(2026, 9, 2, 15, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+            sleep_fn=lambda _: None,
+        )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failed_batches"], [{"batch": 1, "total": 8, "error": "network unavailable"}])
 
     def test_strategy_catalog_has_short_term_tag_and_filters_by_period(self):
         self.assertEqual(strategy_catalog()[0]["周期标签"], "短线")
